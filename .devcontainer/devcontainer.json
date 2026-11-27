@@ -1,0 +1,20 @@
+{
+  "name": "PhotoSift .NET & Avalonia",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "runArgs": [
+    "-e", "DISPLAY=${localEnv:DISPLAY}",
+    "-v", "/tmp/.X11-unix:/tmp/.X11-unix"
+  ],
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-dotnettools.csdevkit",
+        "AvaloniaTeam.vscode-avalonia",
+        "qwtel.sqlite-viewer"
+      ]
+    }
+  },
+  "postCreateCommand": "dotnet restore"
+}
