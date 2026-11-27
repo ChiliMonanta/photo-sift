@@ -142,7 +142,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         UpdateMasterFlags();
 
         var toMark = MasterFolderSelector
-            .SelectCopiesOutsideMasters(Groups.Select(g => g.Group), MasterFolders)
+            .SelectCopiesOutsideMasters(Groups.Select(g => g.Group), MasterFolders, _scanner.Sources)
             .Select(f => f.Path)
             .ToHashSet(PathUtil.Comparer);
 
@@ -396,9 +396,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
                 DeletionReportLines.Add(outcome.Status switch
                 {
-                    DeletionStatus.MovedToTrash => $"Moved to trash: {outcome.Path}",
-                    DeletionStatus.Skipped => $"Skipped: {outcome.Path} — {outcome.Reason}",
-                    _ => $"Failed: {outcome.Path} — {outcome.Reason}",
+                    DeletionStatus.MovedToTrash => $"Moved to trash: {outcome.DisplayPath}",
+                    DeletionStatus.Skipped => $"Skipped: {outcome.DisplayPath} — {outcome.Reason}",
+                    _ => $"Failed: {outcome.DisplayPath} — {outcome.Reason}",
                 });
             }
 
@@ -438,7 +438,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         foreach (var entry in AllFiles())
         {
-            entry.IsInMasterFolder = MasterFolderSelector.IsInAnyMasterFolder(entry.Path, MasterFolders);
+            entry.IsInMasterFolder = MasterFolderSelector.IsInAnyMasterFolder(entry.File, MasterFolders, _scanner.Sources);
         }
     }
 

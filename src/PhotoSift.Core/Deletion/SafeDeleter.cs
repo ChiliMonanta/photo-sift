@@ -1,5 +1,6 @@
 using PhotoSift.Core.Hashing;
 using PhotoSift.Core.Scanning;
+using PhotoSift.Core.Sources;
 
 namespace PhotoSift.Core.Deletion;
 
@@ -10,7 +11,11 @@ public enum DeletionStatus
     Failed,
 }
 
-public sealed record DeletionOutcome(string Path, DeletionStatus Status, string? Reason);
+public sealed record DeletionOutcome(string Path, DeletionStatus Status, string? Reason)
+{
+    /// <summary>Human-readable path shown to the user. Equal to <see cref="Path"/> for local files.</summary>
+    public string DisplayPath { get; init; } = Path;
+}
 
 public sealed class DeletionReport(IReadOnlyList<DeletionOutcome> outcomes)
 {
@@ -32,11 +37,19 @@ public sealed class DeletionReport(IReadOnlyList<DeletionOutcome> outcomes)
 /// <item>Only complete scans can be used.</item>
 /// <item>Each file must still exist with the size and hash recorded during the scan.</item>
 /// <item>At least one copy in each group must be kept, and one kept copy must still match
-/// the scanned hash, so the content is never lost.</item>
+/// the scanned hash, so the content is never lost. Kept copies may be in any source.</item>
+/// <item>Each file is verified and trashed by its own source; files from sources that cannot
+/// move files to the trash (e.g. read-only access) are skipped and reported.</item>
 /// </list>
 /// </remarks>
-public sealed class SafeDeleter(IFileHasher hasher, ITrashService trash)
+public sealed class SafeDeleter(FileSources sources)
 {
+    /// <summary>Deletes from the local file system only.</summary>
+    public SafeDeleter(IFileHasher hasher, ITrashService trash)
+        : this(new FileSources(new LocalFileSource(hasher, trash: trash)))
+    {
+    }
+
     public async Task<DeletionReport> MoveToTrashAsync(
         ScanResult scan,
         IEnumerable<string> selectedPaths,
@@ -92,7 +105,7 @@ public sealed class SafeDeleter(IFileHasher hasher, ITrashService trash)
             foreach (var file in filesToTrash)
             {
                 outcomes.Add(groupSkipReason is not null
-                    ? new DeletionOutcome(file.Path, DeletionStatus.Skipped, groupSkipReason)
+                    ? Outcome(file, DeletionStatus.Skipped, groupSkipReason)
                     : await TrashFileAsync(file, cancellationToken).ConfigureAwait(false));
                 progress?.Report(++processed);
             }
@@ -105,25 +118,39 @@ public sealed class SafeDeleter(IFileHasher hasher, ITrashService trash)
     {
         if (cancellationToken.IsCancellationRequested)
         {
-            return new DeletionOutcome(file.Path, DeletionStatus.Skipped, "Deletion was canceled.");
+            return Outcome(file, DeletionStatus.Skipped, "Deletion was canceled.");
+        }
+
+        var source = sources.Get(file.SourceId);
+        if (source is null)
+        {
+            return Outcome(file, DeletionStatus.Skipped, "The file's source is not available.");
+        }
+
+        if (source.TrashUnavailableReason is { } unavailable)
+        {
+            return Outcome(file, DeletionStatus.Skipped, unavailable);
         }
 
         var problem = await VerifyAsync(file, cancellationToken).ConfigureAwait(false);
         if (problem is not null)
         {
-            return new DeletionOutcome(file.Path, DeletionStatus.Skipped, problem);
+            return Outcome(file, DeletionStatus.Skipped, problem);
         }
 
         try
         {
-            await trash.MoveToTrashAsync(file.Path, cancellationToken).ConfigureAwait(false);
-            return new DeletionOutcome(file.Path, DeletionStatus.MovedToTrash, null);
+            await source.MoveToTrashAsync(file, cancellationToken).ConfigureAwait(false);
+            return Outcome(file, DeletionStatus.MovedToTrash, null);
         }
         catch (Exception ex)
         {
-            return new DeletionOutcome(file.Path, DeletionStatus.Failed, $"Could not move to trash: {ex.Message}");
+            return Outcome(file, DeletionStatus.Failed, $"Could not move to trash: {ex.Message}");
         }
     }
+
+    private static DeletionOutcome Outcome(ScannedFile file, DeletionStatus status, string? reason) =>
+        new(file.Path, status, reason) { DisplayPath = file.DisplayPath };
 
     private async Task<bool> AnyCopyVerifiedAsync(IEnumerable<ScannedFile> copies, CancellationToken cancellationToken)
     {
@@ -141,23 +168,15 @@ public sealed class SafeDeleter(IFileHasher hasher, ITrashService trash)
     /// <summary>Returns null when the file still matches the scan, otherwise the reason it does not.</summary>
     private async Task<string?> VerifyAsync(ScannedFile file, CancellationToken cancellationToken)
     {
+        var source = sources.Get(file.SourceId);
+        if (source is null)
+        {
+            return "The file's source is not available.";
+        }
+
         try
         {
-            var info = new FileInfo(file.Path);
-            if (!info.Exists)
-            {
-                return "File no longer exists.";
-            }
-
-            if (info.Length != file.Size)
-            {
-                return "File size has changed since the scan.";
-            }
-
-            var hash = await hasher.ComputeHashAsync(file.Path, cancellationToken).ConfigureAwait(false);
-            return string.Equals(hash, file.Hash, StringComparison.OrdinalIgnoreCase)
-                ? null
-                : "File contents have changed since the scan.";
+            return await source.VerifyAsync(file, cancellationToken).ConfigureAwait(false);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
