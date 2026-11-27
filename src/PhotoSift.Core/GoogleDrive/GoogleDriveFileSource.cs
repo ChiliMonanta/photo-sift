@@ -188,14 +188,19 @@ public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource, 
 
     /// <summary>
     /// Downloads Drive's thumbnail for the file. Uses the link from the scan; when it has expired,
-    /// gets a fresh link once. Returns null when there is no preview.
+    /// gets a fresh link once.
     /// </summary>
-    public async Task<byte[]?> GetThumbnailAsync(ScannedFile file, int size, CancellationToken cancellationToken)
+    public async Task<ThumbnailData> GetThumbnailAsync(ScannedFile file, int size, CancellationToken cancellationToken)
     {
         var (api, _, fileId, problem) = Resolve(file.Path, expectFolder: false);
-        if (problem is not null || ThumbnailsRefused)
+        if (problem is not null)
         {
-            return null;
+            return ThumbnailData.Unavailable(problem);
+        }
+
+        if (ThumbnailsRefused)
+        {
+            return ThumbnailData.Unavailable("Google Drive refused previews for several files, so no more are requested.");
         }
 
         try
@@ -207,7 +212,7 @@ public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource, 
                     link = (await api!.GetItemAsync(fileId, cancellationToken).ConfigureAwait(false)).ThumbnailLink;
                     if (link is null)
                     {
-                        return null; // Drive has no preview for this file.
+                        return ThumbnailData.Unavailable("Google Drive has no preview for this file.");
                     }
 
                     _thumbnailLinks[file.Path] = link;
@@ -218,7 +223,7 @@ public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource, 
                     var bytes = await api!.DownloadThumbnailAsync(DriveThumbnails.WithSize(link, size), cancellationToken)
                         .ConfigureAwait(false);
                     Volatile.Write(ref _refusedThumbnailsInARow, 0);
-                    return bytes;
+                    return new ThumbnailData(bytes, null);
                 }
                 catch (DriveApiException ex) when (ex.StatusCode is 403 or 404 or 410 && attempt == 1)
                 {
@@ -228,13 +233,13 @@ public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource, 
                 catch (DriveApiException ex) when (ex.StatusCode is 401 or 403 or 404 or 410)
                 {
                     Interlocked.Increment(ref _refusedThumbnailsInARow);
-                    return null;
+                    return ThumbnailData.Unavailable($"Google Drive refused the preview (HTTP {ex.StatusCode}).");
                 }
             }
         }
         catch (Exception ex) when (ex is DriveApiException or DriveSignInRequiredException or HttpRequestException)
         {
-            return null;
+            return ThumbnailData.Unavailable($"Preview could not be loaded from Google Drive: {ex.Message}");
         }
     }
 

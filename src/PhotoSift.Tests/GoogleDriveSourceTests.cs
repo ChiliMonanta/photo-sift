@@ -233,7 +233,7 @@ public sealed class GoogleDriveSourceTests : IDisposable
 
         var bytes = await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None);
 
-        Assert.Equal(FakeDriveApi.ThumbnailBytesFor(id), bytes);
+        Assert.Equal(FakeDriveApi.ThumbnailBytesFor(id), bytes.Bytes);
         Assert.Equal([$"https://lh3.googleusercontent.com/drive-storage/{id}=s192"], _drive.ThumbnailRequests);
         Assert.Equal(getItemCallsAfterScan, _drive.GetItemCalls); // no extra metadata request
     }
@@ -246,7 +246,7 @@ public sealed class GoogleDriveSourceTests : IDisposable
 
         var bytes = await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None);
 
-        Assert.NotNull(bytes);
+        Assert.NotNull(bytes.Bytes);
         Assert.Equal(2, _drive.ThumbnailRequests.Count);
         Assert.EndsWith("x=s192", _drive.ThumbnailRequests[1]);
     }
@@ -257,11 +257,15 @@ public sealed class GoogleDriveSourceTests : IDisposable
         var files = await ScanDrivePairsAsync(3);
         _drive.RefuseThumbnails = true;
 
+        var results = new List<ThumbnailData>();
         foreach (var file in files)
         {
-            Assert.Null(await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None));
+            results.Add(await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None));
         }
 
+        Assert.All(results, r => Assert.Null(r.Bytes));
+        Assert.Equal("Google Drive refused the preview (HTTP 403).", results[0].Problem);
+        Assert.Contains("no more are requested", results[^1].Problem);
         Assert.True(DriveSource.ThumbnailsRefused);
         // Two attempts (the scanned link, then a fresh one) for each of the first three files, then none.
         Assert.Equal(2 * GoogleDriveFileSource.MaxRefusedThumbnails, _drive.ThumbnailRequests.Count);
@@ -272,7 +276,10 @@ public sealed class GoogleDriveSourceTests : IDisposable
     {
         var file = (await ScanDrivePairsAsync(1, thumbnails: false))[0];
 
-        Assert.Null(await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None));
+        var result = await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None);
+
+        Assert.Null(result.Bytes);
+        Assert.Equal("Google Drive has no preview for this file.", result.Problem);
         Assert.Empty(_drive.ThumbnailRequests);
         Assert.False(DriveSource.ThumbnailsRefused);
     }
