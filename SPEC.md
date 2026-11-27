@@ -138,7 +138,7 @@ Anyone who downloads PhotoSift can connect **their own Google Drive** as an alte
 
 **Sign-in and credentials:**
 * OAuth for installed apps: system browser, loopback redirect (`127.0.0.1`), and PKCE.
-* The OAuth client ID and client secret are embedded in released builds. For desktop apps they are not confidential (RFC 8252 "public client"); security comes from the user's consent and PKCE. They are kept out of the repository: release builds receive them from a GitHub Actions secret, and developers use `dotnet user-secrets`. An advanced setting lets users supply their own client ID.
+* The OAuth client ID and client secret are embedded in released builds. For desktop apps they are not confidential (RFC 8252 "public client"); security comes from the user's consent and PKCE. They are kept out of the repository: release builds receive them from a GitHub Actions secret, and developers use `dotnet user-secrets`. An advanced setting lets users supply their own client ID. Setting up a client is documented in [docs/google-oauth-setup.md](docs/google-oauth-setup.md).
 * Users' access and refresh tokens are stored only in the OS's secure storage (Windows DPAPI, macOS Keychain, libsecret on Linux), never in plain files. Users can disconnect, which deletes the tokens.
 * Google requires verification for public apps that use restricted Drive scopes (privacy policy and home page on a verified domain, a demo video, and a scope justification). Until verified, the app runs in Testing mode with listed test users.
 

@@ -480,3 +480,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Google OAuth client files downloaded from Google Cloud (see docs/google-oauth-setup.md)
+client_secret*.json
