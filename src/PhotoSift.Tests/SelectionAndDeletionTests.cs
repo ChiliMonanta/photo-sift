@@ -21,7 +21,7 @@ public class MasterFolderSelectorTests
         temp.WriteImage("phone/no-master-b.jpg", seed: 2);
 
         var scan = await Scan(temp);
-        var selected = MasterFolderSelector.SelectCopiesOutsideMaster(scan.Groups, master).Select(f => f.Path).ToList();
+        var selected = MasterFolderSelector.SelectCopiesOutsideMasters(scan.Groups, [master]).Select(f => f.Path).ToList();
 
         Assert.Equal([outside1, outside2], selected.Order());
         Assert.DoesNotContain(inMaster, selected);
@@ -38,7 +38,43 @@ public class MasterFolderSelectorTests
 
         var scan = await Scan(temp);
 
-        Assert.Empty(MasterFolderSelector.SelectCopiesOutsideMaster(scan.Groups, temp.PathOf("master")));
+        Assert.Empty(MasterFolderSelector.SelectCopiesOutsideMasters(scan.Groups, [temp.PathOf("master")]));
+    }
+
+    [Fact]
+    public async Task Copies_in_any_master_folder_are_kept_and_others_marked()
+    {
+        using var temp = new TempFolder();
+        var pictures = temp.PathOf("Pictures");
+        var archive = temp.PathOf("Archive");
+        var inPictures = temp.WriteImage("Pictures/2024/a.jpg", seed: 1);
+        var inArchive = temp.WriteImage("Archive/a-copy.jpg", seed: 1);
+        var outsideA = temp.WriteImage("Downloads/a.jpg", seed: 1);
+        var onlyInArchive = temp.WriteImage("Archive/b.jpg", seed: 2);
+        var outsideB = temp.WriteImage("Phone/b.jpg", seed: 2);
+        temp.WriteImage("Downloads/c.jpg", seed: 3);
+        temp.WriteImage("Phone/c.jpg", seed: 3);
+
+        var scan = await Scan(temp);
+        var selected = MasterFolderSelector.SelectCopiesOutsideMasters(scan.Groups, [pictures, archive])
+            .Select(f => f.Path).Order().ToList();
+
+        Assert.Equal(new[] { outsideA, outsideB }.Order(), selected);
+        Assert.DoesNotContain(inPictures, selected);
+        Assert.DoesNotContain(inArchive, selected);
+        Assert.DoesNotContain(onlyInArchive, selected);
+    }
+
+    [Fact]
+    public async Task Nothing_selected_without_master_folders()
+    {
+        using var temp = new TempFolder();
+        temp.WriteImage("a/x.jpg", seed: 1);
+        temp.WriteImage("b/y.jpg", seed: 1);
+
+        var scan = await Scan(temp);
+
+        Assert.Empty(MasterFolderSelector.SelectCopiesOutsideMasters(scan.Groups, []));
     }
 
     internal static Task<ScanResult> Scan(TempFolder temp) =>

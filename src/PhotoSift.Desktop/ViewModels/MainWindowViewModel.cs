@@ -29,6 +29,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _thumbnailLoader = thumbnailLoader;
 
         Folders.CollectionChanged += (_, _) => ScanCommand.NotifyCanExecuteChanged();
+        MasterFolders.CollectionChanged += (_, _) =>
+        {
+            OnPropertyChanged(nameof(HasMasterFolders));
+            ClearMasterFoldersCommand.NotifyCanExecuteChanged();
+            ApplyMasterFoldersCommand.NotifyCanExecuteChanged();
+        };
         Issues.CollectionChanged += (_, _) => OnPropertyChanged(nameof(HasIssues));
         if (startupWarning is not null)
         {
@@ -44,14 +50,17 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [NotifyCanExecuteChangedFor(nameof(RemoveFolderCommand))]
     public partial string? SelectedFolder { get; set; }
 
+    /// <summary>Folders whose copies are kept; copies outside all of them are marked by the master rule.</summary>
+    public ObservableCollection<string> MasterFolders { get; } = [];
+
     [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(MasterFolderDisplay), nameof(HasMasterFolder))]
-    [NotifyCanExecuteChangedFor(nameof(ClearMasterFolderCommand), nameof(ApplyMasterFolderCommand))]
-    public partial string? MasterFolder { get; set; }
+    [NotifyCanExecuteChangedFor(nameof(RemoveMasterFolderCommand))]
+    public partial string? SelectedMasterFolder { get; set; }
 
-    public bool HasMasterFolder => MasterFolder is not null;
+    public bool HasMasterFolders => MasterFolders.Count > 0;
 
-    public string MasterFolderDisplay => MasterFolder ?? "No master folder selected";
+    /// <summary>Files marked by the master rule (not by the user), so the rule can be undone when masters change.</summary>
+    private readonly HashSet<string> _markedByMasterRule = new(PathUtil.Comparer);
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
     private async Task AddFoldersAsync()
@@ -81,63 +90,102 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private bool CanRemoveFolder() => SelectedFolder is not null && IsIdle();
 
     [RelayCommand(CanExecute = nameof(IsIdle))]
-    private async Task ChooseMasterFolderAsync()
+    private async Task AddMasterFoldersAsync()
     {
-        var result = await _folderPicker.PickFoldersAsync("Select the master folder", allowMultiple: false);
+        var result = await _folderPicker.PickFoldersAsync("Select master folders", allowMultiple: true);
         ReportNonLocalFolders(result);
-        if (result.LocalPaths.Count == 0)
+
+        var added = false;
+        foreach (var path in result.LocalPaths)
         {
-            return;
+            var normalized = PathUtil.Normalize(path);
+            if (!MasterFolders.Contains(normalized, PathUtil.Comparer))
+            {
+                MasterFolders.Add(normalized);
+                added = true;
+            }
         }
 
-        MasterFolder = PathUtil.Normalize(result.LocalPaths[0]);
-        ApplyMasterFolder();
+        if (added)
+        {
+            ApplyMasterFolders();
+        }
     }
 
-    [RelayCommand(CanExecute = nameof(CanClearMasterFolder))]
-    private void ClearMasterFolder()
+    [RelayCommand(CanExecute = nameof(CanRemoveMasterFolder))]
+    private void RemoveMasterFolder()
     {
-        MasterFolder = null;
-        UpdateMasterFlags();
+        if (SelectedMasterFolder is not null && MasterFolders.Remove(SelectedMasterFolder))
+        {
+            ApplyMasterFolders();
+        }
     }
 
-    private bool CanClearMasterFolder() => MasterFolder is not null && IsIdle();
+    private bool CanRemoveMasterFolder() => SelectedMasterFolder is not null && IsIdle();
+
+    [RelayCommand(CanExecute = nameof(CanChangeMasterFolders))]
+    private void ClearMasterFolders()
+    {
+        MasterFolders.Clear();
+        ApplyMasterFolders();
+    }
 
     /// <summary>
-    /// In groups with a copy in the master folder, marks every copy outside it.
-    /// Groups without a master copy, and copies inside the master folder, are left untouched.
+    /// In groups with a copy in any master folder, marks every copy outside all master folders.
+    /// Groups without a master copy, and copies inside a master folder, are left untouched.
+    /// Marks the rule set earlier that no longer apply (e.g. after a master folder was removed)
+    /// are cleared; marks the user set manually are never changed.
     /// </summary>
-    [RelayCommand(CanExecute = nameof(CanApplyMasterFolder))]
-    private void ApplyMasterFolder()
+    [RelayCommand(CanExecute = nameof(CanChangeMasterFolders))]
+    private void ApplyMasterFolders()
     {
         UpdateMasterFlags();
-        if (MasterFolder is null || Groups.Count == 0)
-        {
-            return;
-        }
 
         var toMark = MasterFolderSelector
-            .SelectCopiesOutsideMaster(Groups.Select(g => g.Group), MasterFolder)
+            .SelectCopiesOutsideMasters(Groups.Select(g => g.Group), MasterFolders)
             .Select(f => f.Path)
             .ToHashSet(PathUtil.Comparer);
 
-        foreach (var entry in AllFiles().Where(f => !f.IsTrashed && toMark.Contains(f.Path)))
+        var unmarked = 0;
+        foreach (var entry in AllFiles().Where(f => _markedByMasterRule.Contains(f.Path) && !toMark.Contains(f.Path)))
         {
-            entry.IsMarked = true;
+            if (entry.IsMarked)
+            {
+                entry.IsMarked = false;
+                unmarked++;
+            }
+
+            _markedByMasterRule.Remove(entry.Path);
         }
 
-        StatusText = $"Master folder applied: {toMark.Count} copies outside the master folder are marked for deletion.";
+        foreach (var entry in AllFiles().Where(f => !f.IsTrashed && !f.IsMarked && toMark.Contains(f.Path)))
+        {
+            entry.IsMarked = true;
+            if (entry.IsMarked)
+            {
+                _markedByMasterRule.Add(entry.Path);
+            }
+        }
+
+        if (Groups.Count == 0)
+        {
+            return;
+        }
+
+        StatusText = MasterFolders.Count == 0
+            ? $"No master folders: {unmarked} mark(s) set by the master rule were removed."
+            : $"Master folders applied: {toMark.Count} copies outside the master folders are marked for deletion.";
     }
 
-    private bool CanApplyMasterFolder() => MasterFolder is not null && IsIdle();
+    private bool CanChangeMasterFolders() => MasterFolders.Count > 0 && IsIdle();
 
     // ---- Scanning ------------------------------------------------------------
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanReviewDeletion))]
     [NotifyCanExecuteChangedFor(nameof(ScanCommand), nameof(AddFoldersCommand), nameof(RemoveFolderCommand),
-        nameof(ChooseMasterFolderCommand), nameof(ClearMasterFolderCommand), nameof(ApplyMasterFolderCommand),
-        nameof(ReviewDeletionCommand), nameof(ClearMarksCommand))]
+        nameof(AddMasterFoldersCommand), nameof(RemoveMasterFolderCommand), nameof(ClearMasterFoldersCommand),
+        nameof(ApplyMasterFoldersCommand), nameof(ReviewDeletionCommand), nameof(ClearMarksCommand))]
     public partial bool IsScanning { get; private set; }
 
     [ObservableProperty]
@@ -221,6 +269,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private void ShowResult(ScanResult result)
     {
+        _markedByMasterRule.Clear();
         foreach (var group in result.Groups)
         {
             Groups.Add(new DuplicateGroupViewModel(group, _thumbnailLoader, OnMarkChanged));
@@ -244,9 +293,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
         StatusText = $"{(result.WasCanceled ? "Scan canceled" : "Scan finished")}: {result.FilesScanned:N0} images hashed, " +
                      $"{result.Groups.Count:N0} duplicate groups ({copies:N0} files), {result.Errors.Count:N0} errors.";
 
-        if (MasterFolder is not null)
+        if (MasterFolders.Count > 0)
         {
-            ApplyMasterFolder();
+            ApplyMasterFolders();
         }
     }
 
@@ -262,8 +311,9 @@ public sealed partial class MainWindowViewModel : ObservableObject
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(CanReviewDeletion))]
     [NotifyCanExecuteChangedFor(nameof(ReviewDeletionCommand), nameof(ConfirmDeletionCommand), nameof(ScanCommand),
-        nameof(AddFoldersCommand), nameof(RemoveFolderCommand), nameof(ChooseMasterFolderCommand),
-        nameof(ClearMasterFolderCommand), nameof(ApplyMasterFolderCommand), nameof(ClearMarksCommand))]
+        nameof(AddFoldersCommand), nameof(RemoveFolderCommand), nameof(AddMasterFoldersCommand),
+        nameof(RemoveMasterFolderCommand), nameof(ClearMasterFoldersCommand), nameof(ApplyMasterFoldersCommand),
+        nameof(ClearMarksCommand))]
     public partial bool IsDeleting { get; private set; }
 
     [ObservableProperty]
@@ -388,7 +438,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
     {
         foreach (var entry in AllFiles())
         {
-            entry.IsInMasterFolder = MasterFolder is not null && PathUtil.IsInFolder(entry.Path, MasterFolder);
+            entry.IsInMasterFolder = MasterFolderSelector.IsInAnyMasterFolder(entry.Path, MasterFolders);
         }
     }
 
