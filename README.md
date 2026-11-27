@@ -38,4 +38,6 @@ To try the packaging without releasing, run the Release workflow manually from t
 
 ## Google Drive (in development)
 
+PhotoSift can scan folders in your own My Drive, read-only, together with local folders (Windows only for now). Click **Connect Google Drive…**, sign in in your browser, then **Browse Google Drive…** to add Drive folders to scan or as master folders. Hashes come from Drive's metadata, so no photos are downloaded. Drive copies are never moved to the trash in this version, but they count as kept copies when you delete local duplicates.
+
 Google Drive support needs a Google OAuth client. The credentials are not in this repository; to build with Drive support (for example in a fork), create your own client by following [docs/google-oauth-setup.md](docs/google-oauth-setup.md).

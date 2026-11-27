@@ -23,6 +23,17 @@
     <PackageReference Include="Avalonia.Themes.Fluent" Version="12.1.6" />
     <PackageReference Include="Avalonia.Fonts.Inter" Version="12.1.6" />
     <PackageReference Include="CommunityToolkit.Mvvm" Version="8.4.2" />
+    <PackageReference Include="System.Security.Cryptography.ProtectedData" Version="10.0.15" />
+  </ItemGroup>
+
+  <!--
+    Release builds get the Google OAuth client from the GoogleDriveClientId and GoogleDriveClientSecret
+    properties (set from GitHub secrets by the release workflow). Without them, the build has no
+    built-in client. These values are public in a desktop app, but they are kept out of the repository.
+  -->
+  <ItemGroup Condition="'$(GoogleDriveClientId)' != ''">
+    <AssemblyMetadata Include="GoogleDriveClientId" Value="$(GoogleDriveClientId)" />
+    <AssemblyMetadata Include="GoogleDriveClientSecret" Value="$(GoogleDriveClientSecret)" />
   </ItemGroup>
 
   <ItemGroup>

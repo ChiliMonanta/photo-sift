@@ -50,6 +50,8 @@ public sealed class SafeDeleter(FileSources sources)
     {
     }
 
+    public FileSources Sources => sources;
+
     public async Task<DeletionReport> MoveToTrashAsync(
         ScanResult scan,
         IEnumerable<string> selectedPaths,

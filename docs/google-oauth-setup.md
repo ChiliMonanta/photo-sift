@@ -62,11 +62,18 @@ Check them with:
 dotnet user-secrets list --project src/PhotoSift.Desktop
 ```
 
-User secrets are only used by local development builds. Released apps get the credentials from the build, as described below.
+User secrets are only used by Debug builds (`dotnet run`). Released apps get the credentials from the build, as described below.
+
+You can also use environment variables, which work in every build and take precedence over the other sources. This is also how users of a released build can use their own client:
+
+```sh
+PHOTOSIFT_GOOGLE_CLIENT_ID=<client_id>
+PHOTOSIFT_GOOGLE_CLIENT_SECRET=<client_secret>
+```
 
 ## 6. Give the credentials to release builds (GitHub Actions)
 
-The release workflow builds the credentials into the published app. In your repository on GitHub, go to **Settings → Secrets and variables → Actions → New repository secret** and add:
+The release workflow builds the credentials into the published app, but only for tag builds (releases). Manual and pull request builds, whose packages anyone can download, are built without them. In your repository on GitHub, go to **Settings → Secrets and variables → Actions → New repository secret** and add:
 
 | Name | Value |
 |---|---|

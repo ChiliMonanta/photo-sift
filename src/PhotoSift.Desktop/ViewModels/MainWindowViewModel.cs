@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using PhotoSift.Core;
 using PhotoSift.Core.Deletion;
+using PhotoSift.Core.GoogleDrive;
 using PhotoSift.Core.Scanning;
 using PhotoSift.Core.Selection;
 using PhotoSift.Desktop.Services;
@@ -21,12 +22,18 @@ public sealed partial class MainWindowViewModel : ObservableObject
         SafeDeleter deleter,
         IFolderPicker folderPicker,
         ThumbnailLoader thumbnailLoader,
-        string? startupWarning = null)
+        string? startupWarning = null,
+        GoogleDriveViewModel? drive = null)
     {
         _scanner = scanner;
         _deleter = deleter;
         _folderPicker = folderPicker;
         _thumbnailLoader = thumbnailLoader;
+        Drive = drive;
+        if (drive is not null)
+        {
+            drive.AddFolder = AddDriveFolder;
+        }
 
         Folders.CollectionChanged += (_, _) => ScanCommand.NotifyCanExecuteChanged();
         MasterFolders.CollectionChanged += (_, _) =>
@@ -41,6 +48,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
             Issues.Add(startupWarning);
         }
     }
+
+    /// <summary>Google Drive connection and folder browser; null when the app runs without Drive support.</summary>
+    public GoogleDriveViewModel? Drive { get; }
+
+    public bool HasDrive => Drive is not null;
 
     // ---- Folders -------------------------------------------------------------
 
@@ -123,6 +135,28 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     private bool CanRemoveMasterFolder() => SelectedMasterFolder is not null && IsIdle();
 
+    /// <summary>Adds a folder chosen in the Google Drive browser to the folders to scan or the master folders.</summary>
+    public void AddDriveFolder(string location, string label, bool asMaster)
+    {
+        if (!IsIdle())
+        {
+            return;
+        }
+
+        LocationLabels.Register(location, label);
+        var list = asMaster ? MasterFolders : Folders;
+        if (list.Contains(location, PathUtil.Comparer))
+        {
+            return;
+        }
+
+        list.Add(location);
+        if (asMaster)
+        {
+            ApplyMasterFolders();
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanChangeMasterFolders))]
     private void ClearMasterFolders()
     {
@@ -146,6 +180,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
             .Select(f => f.Path)
             .ToHashSet(PathUtil.Comparer);
 
+        var readOnlyKept = 0;
         var unmarked = 0;
         foreach (var entry in AllFiles().Where(f => _markedByMasterRule.Contains(f.Path) && !toMark.Contains(f.Path)))
         {
@@ -160,6 +195,12 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         foreach (var entry in AllFiles().Where(f => !f.IsTrashed && !f.IsMarked && toMark.Contains(f.Path)))
         {
+            if (entry.IsReadOnly)
+            {
+                readOnlyKept++;
+                continue;
+            }
+
             entry.IsMarked = true;
             if (entry.IsMarked)
             {
@@ -174,7 +215,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
         StatusText = MasterFolders.Count == 0
             ? $"No master folders: {unmarked} mark(s) set by the master rule were removed."
-            : $"Master folders applied: {toMark.Count} copies outside the master folders are marked for deletion.";
+            : $"Master folders applied: {toMark.Count - readOnlyKept} copies outside the master folders are marked for deletion." +
+              (readOnlyKept > 0 ? $" {readOnlyKept} read-only Google Drive copies outside them are kept." : string.Empty);
     }
 
     private bool CanChangeMasterFolders() => MasterFolders.Count > 0 && IsIdle();
@@ -187,6 +229,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         nameof(AddMasterFoldersCommand), nameof(RemoveMasterFolderCommand), nameof(ClearMasterFoldersCommand),
         nameof(ApplyMasterFoldersCommand), nameof(ReviewDeletionCommand), nameof(ClearMarksCommand))]
     public partial bool IsScanning { get; private set; }
+
+    partial void OnIsScanningChanged(bool value) => Drive?.SetAppBusy(!IsIdle());
 
     [ObservableProperty]
     public partial double ProgressValue { get; private set; }
@@ -232,6 +276,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IsProgressIndeterminate = true;
         ProgressValue = 0;
         StatusText = "Scanning…";
+        WarnAboutDriveForDesktop();
 
         var progress = new Progress<ScanProgress>(p =>
         {
@@ -272,7 +317,7 @@ public sealed partial class MainWindowViewModel : ObservableObject
         _markedByMasterRule.Clear();
         foreach (var group in result.Groups)
         {
-            Groups.Add(new DuplicateGroupViewModel(group, _thumbnailLoader, OnMarkChanged));
+            Groups.Add(new DuplicateGroupViewModel(group, _thumbnailLoader, OnMarkChanged, ReadOnlyReason));
         }
 
         foreach (var error in result.Errors)
@@ -315,6 +360,8 @@ public sealed partial class MainWindowViewModel : ObservableObject
         nameof(RemoveMasterFolderCommand), nameof(ClearMasterFoldersCommand), nameof(ApplyMasterFoldersCommand),
         nameof(ClearMarksCommand))]
     public partial bool IsDeleting { get; private set; }
+
+    partial void OnIsDeletingChanged(bool value) => Drive?.SetAppBusy(!IsIdle());
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsOverlayVisible))]
@@ -433,6 +480,27 @@ public sealed partial class MainWindowViewModel : ObservableObject
     private IEnumerable<FileEntryViewModel> AllFiles() => Groups.SelectMany(g => g.Files);
 
     private void OnMarkChanged(bool marked) => MarkedCount += marked ? 1 : -1;
+
+    private string? ReadOnlyReason(ScannedFile file) =>
+        _deleter.Sources.Get(file.SourceId) is { } source ? source.TrashUnavailableReason : "The file's source is not available.";
+
+    /// <summary>
+    /// Scanning a Google Drive for desktop folder together with Drive itself finds the same files twice,
+    /// and deleting the local "copy" deletes the file from Drive as well.
+    /// </summary>
+    private void WarnAboutDriveForDesktop()
+    {
+        if (!Folders.Any(DriveLocations.IsDrive))
+        {
+            return;
+        }
+
+        foreach (var folder in Folders.Where(f => PathUtil.IsLocal(f) && DriveForDesktop.IsInside(f)))
+        {
+            Issues.Add($"Warning: {folder} looks like a Google Drive for desktop folder. Its files may also be found through " +
+                       "Google Drive and show up as duplicates of themselves; moving such a local copy to the trash also deletes it from Drive.");
+        }
+    }
 
     private void UpdateMasterFlags()
     {

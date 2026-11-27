@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PhotoSift.Desktop.ViewModels"
+        xmlns:svc="using:PhotoSift.Desktop.Services"
         x:Class="PhotoSift.Desktop.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="PhotoSift"
@@ -25,6 +26,22 @@
   <Panel>
     <DockPanel Margin="16">
 
+      <!-- Google Drive -->
+      <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12" IsVisible="{Binding HasDrive}">
+        <DockPanel DataContext="{Binding Drive}" x:DataType="vm:GoogleDriveViewModel">
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+            <Button Content="Connect Google Drive…" Command="{Binding ConnectCommand}" IsVisible="{Binding !IsConnected}" />
+            <Button Content="Cancel sign-in" Command="{Binding ConnectCancelCommand}" IsVisible="{Binding IsBusy}" />
+            <Button Content="Browse Google Drive…" Command="{Binding BrowseCommand}" IsVisible="{Binding IsConnected}" />
+            <Button Content="Disconnect" Command="{Binding DisconnectCommand}" IsVisible="{Binding IsConnected}" />
+          </StackPanel>
+          <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
+            <TextBlock Classes="heading" Text="Google Drive" />
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes="muted" />
+          </StackPanel>
+        </DockPanel>
+      </Border>
+
       <!-- Folder selection -->
       <Grid DockPanel.Dock="Top" ColumnDefinitions="*,16,*" Margin="0,0,0,12">
         <Border Classes="card">
@@ -35,7 +52,13 @@
               <Button Content="Remove" Command="{Binding RemoveFolderCommand}" />
             </StackPanel>
             <ListBox ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}"
-                     MinHeight="64" MaxHeight="120" />
+                     MinHeight="64" MaxHeight="120">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="x:String">
+                  <TextBlock Text="{Binding Converter={x:Static svc:LocationLabels.Converter}}" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
           </DockPanel>
         </Border>
 
@@ -54,7 +77,13 @@
             </StackPanel>
             <Panel>
               <ListBox ItemsSource="{Binding MasterFolders}" SelectedItem="{Binding SelectedMasterFolder}"
-                       MinHeight="64" MaxHeight="120" />
+                       MinHeight="64" MaxHeight="120">
+                <ListBox.ItemTemplate>
+                  <DataTemplate x:DataType="x:String">
+                    <TextBlock Text="{Binding Converter={x:Static svc:LocationLabels.Converter}}" />
+                  </DataTemplate>
+                </ListBox.ItemTemplate>
+              </ListBox>
               <TextBlock Text="No master folders selected" Classes="muted" Margin="12"
                          IsHitTestVisible="False" IsVisible="{Binding !HasMasterFolders}" />
             </Panel>
@@ -116,6 +145,8 @@
                         <StackPanel>
                           <StackPanel Orientation="Horizontal" Spacing="8">
                             <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" />
+                            <TextBlock Text="(Google Drive · read-only, kept)" IsVisible="{Binding IsReadOnly}"
+                                       ToolTip.Tip="{Binding ReadOnlyReason}" Foreground="SteelBlue" />
                             <TextBlock Text="(master folder)" IsVisible="{Binding IsInMasterFolder}" Foreground="SeaGreen" />
                             <TextBlock Text="(moved to trash)" IsVisible="{Binding IsTrashed}" Foreground="IndianRed" />
                             <TextBlock Text="(kept — at least one copy must remain)" IsVisible="{Binding IsLastKeptCopy}" Classes="muted" />
@@ -132,6 +163,44 @@
         </ListBox.ItemTemplate>
       </ListBox>
     </DockPanel>
+
+    <!-- Google Drive folder browser -->
+    <Border Background="#99000000" IsVisible="{Binding Drive.IsBrowsing, FallbackValue=False}">
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}" CornerRadius="8" Padding="20"
+              Width="640" Margin="40" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <DockPanel DataContext="{Binding Drive.Browser}" x:DataType="vm:DriveBrowserViewModel">
+          <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+            <TextBlock Classes="heading" Text="Choose a Google Drive folder" />
+            <TextBlock Text="{Binding CurrentPath}" TextWrapping="Wrap" FontWeight="SemiBold" />
+            <TextBlock TextWrapping="Wrap" Classes="muted"
+                       Text="Double-click a folder to open it. The buttons below add the folder shown above, including its subfolders." />
+          </StackPanel>
+          <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,12,0,0">
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+            <DockPanel>
+              <Button DockPanel.Dock="Right" Content="Close" Command="{Binding CloseCommand}" IsCancel="True" />
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Up" Command="{Binding UpCommand}" />
+                <Button Content="Open" Command="{Binding OpenCommand}" />
+                <Button Content="Add to folders to scan" Command="{Binding AddToScanCommand}" Classes="accent" />
+                <Button Content="Add as master folder" Command="{Binding AddAsMasterCommand}" />
+              </StackPanel>
+            </DockPanel>
+          </StackPanel>
+          <Panel>
+            <ListBox x:Name="DriveFolderList" ItemsSource="{Binding Children}" SelectedItem="{Binding SelectedChild}"
+                     Height="320" DoubleTapped="OnDriveFolderDoubleTapped">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:DriveFolderNode">
+                  <TextBlock Text="{Binding Name}" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+            <TextBlock Text="No subfolders" Classes="muted" Margin="12" IsHitTestVisible="False" IsVisible="{Binding IsEmpty}" />
+          </Panel>
+        </DockPanel>
+      </Border>
+    </Border>
 
     <!-- Confirmation and report overlay -->
     <Border Background="#99000000" IsVisible="{Binding IsOverlayVisible}">
@@ -151,7 +220,7 @@
             <ListBox ItemsSource="{Binding PendingDeletion}" MaxHeight="420">
               <ListBox.ItemTemplate>
                 <DataTemplate x:DataType="vm:FileEntryViewModel">
-                  <TextBlock Text="{Binding Path}" TextWrapping="Wrap" />
+                  <TextBlock Text="{Binding DisplayPath}" TextWrapping="Wrap" />
                 </DataTemplate>
               </ListBox.ItemTemplate>
             </ListBox>
