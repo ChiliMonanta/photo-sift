@@ -1,0 +1,181 @@
+name: Release
+
+# Pushing a tag like v0.1.0 builds every platform and creates a DRAFT GitHub Release.
+# Nothing is public until someone publishes the draft on GitHub.
+# Manual runs and PRs that touch packaging only build the packages (as workflow artifacts).
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - .github/workflows/release.yml
+      - .github/release-notes.md
+      - build/**
+      - src/PhotoSift.Desktop/PhotoSift.Desktop.csproj
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  DOTNET_NOLOGO: true
+  DOTNET_CLI_TELEMETRY_OPTOUT: true
+  DOTNET_SKIP_FIRST_TIME_EXPERIENCE: true
+
+jobs:
+  version:
+    name: Determine version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      prerelease: ${{ steps.v.outputs.prerelease }}
+    steps:
+      - id: v
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+              echo "::error::Tag '$GITHUB_REF_NAME' is not a version tag like v1.2.3 or v1.2.3-rc.1"
+              exit 1
+            fi
+          else
+            version="0.0.0-ci.${GITHUB_RUN_NUMBER}"
+          fi
+          prerelease=false
+          [[ "$version" == *-* ]] && prerelease=true
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+          echo "Version: $version (prerelease: $prerelease)"
+
+  test:
+    name: Test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+      - run: dotnet test PhotoSift.sln --configuration Release
+
+  package:
+    name: Package (${{ matrix.rid }})
+    needs: [version, test]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: windows-latest, rid: win-x64 }
+          - { os: macos-latest, rid: osx-arm64 }
+          - { os: macos-latest, rid: osx-x64 }
+          - { os: ubuntu-latest, rid: linux-x64 }
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      RID: ${{ matrix.rid }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Publish
+        shell: bash
+        run: |
+          dotnet publish src/PhotoSift.Desktop/PhotoSift.Desktop.csproj \
+            --configuration Release \
+            --runtime "$RID" \
+            --self-contained true \
+            -p:PublishSingleFile=true \
+            -p:IncludeNativeLibrariesForSelfExtract=true \
+            -p:DebugType=none \
+            -p:Version="$VERSION" \
+            --output publish
+          # Native debug symbols from SkiaSharp/HarfBuzz (~100 MB) are not needed by users.
+          rm -f publish/*.pdb
+          ls -la publish
+
+      - name: Package (Windows)
+        if: startsWith(matrix.rid, 'win-')
+        shell: pwsh
+        run: |
+          $name = "PhotoSift-$env:VERSION-$env:RID"
+          New-Item -ItemType Directory -Force dist, "stage/$name" | Out-Null
+          Copy-Item publish/* "stage/$name/"
+          Compress-Archive -Path "stage/$name" -DestinationPath "dist/$name.zip"
+
+      - name: Package (macOS app bundle)
+        if: startsWith(matrix.rid, 'osx-')
+        shell: bash
+        run: |
+          app="stage/PhotoSift.app"
+          mkdir -p "$app/Contents/MacOS" "$app/Contents/Resources" dist
+          cp -R publish/. "$app/Contents/MacOS/"
+          sed -e "s/__VERSION__/$VERSION/" -e "s/__SHORT_VERSION__/${VERSION%%-*}/" \
+            build/macos/Info.plist > "$app/Contents/Info.plist"
+          plutil -lint "$app/Contents/Info.plist"
+          # Ad-hoc signature (no Apple account): required to run on Apple Silicon at all.
+          codesign --force --deep --sign - "$app"
+          codesign --verify --deep --strict "$app"
+          ditto -c -k --keepParent "$app" "dist/PhotoSift-$VERSION-$RID.zip"
+
+      - name: Package (Linux)
+        if: startsWith(matrix.rid, 'linux-')
+        shell: bash
+        run: |
+          name="PhotoSift-$VERSION-$RID"
+          mkdir -p "stage/$name" dist
+          cp -R publish/. "stage/$name/"
+          chmod +x "stage/$name/PhotoSift"
+          tar -C stage -czf "dist/$name.tar.gz" "$name"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-${{ matrix.rid }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create draft release
+    if: github.ref_type == 'tag'
+    needs: [version, package]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      PRERELEASE: ${{ needs.version.outputs.prerelease }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: package-*
+          merge-multiple: true
+          path: dist
+
+      - name: Checksums
+        working-directory: dist
+        run: |
+          sha256sum * > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Create draft release
+        shell: bash
+        run: |
+          flags=(--draft --verify-tag --generate-notes
+                 --title "PhotoSift $VERSION"
+                 --notes-file .github/release-notes.md)
+          [[ "$PRERELEASE" == "true" ]] && flags+=(--prerelease)
+          gh release create "$GITHUB_REF_NAME" dist/* "${flags[@]}"

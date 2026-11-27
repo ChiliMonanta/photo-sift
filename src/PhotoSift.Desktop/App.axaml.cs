@@ -22,7 +22,7 @@ public partial class App : Application
         {
             var (cache, cacheWarning) = OpenHashCache();
             var hasher = new Md5FileHasher();
-            var window = new MainWindow();
+            var window = new MainWindow { Title = AppInfo.WindowTitle };
 
             window.DataContext = new MainWindowViewModel(
                 new DuplicateScanner(hasher, cache),
