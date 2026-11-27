@@ -119,6 +119,7 @@ RUN dotnet new install Avalonia.Templates
 * **Performance:** Asynchronous/multithreaded scanning so the UI never freezes, with a clear progress indicator. Users can cancel a scan.
 * **Privacy:** Hashing is performed locally on the user's computer. No image data is sent to third-party servers.
 * **Error handling:** Report unreadable, inaccessible, or unsupported files with their paths and reasons, and continue scanning other files. If a scan is canceled or any file cannot be scanned, mark the results incomplete; users can review them, but deletion is disabled until a complete scan has finished.
+* **Distribution:** Releases are published as GitHub Releases with self-contained, single-file builds (no .NET installation required) for Windows x64 (`.zip`), macOS Apple Silicon and Intel (`PhotoSift.app` in a `.zip`), and Linux x64 (`.tar.gz`), plus a `SHA256SUMS.txt`. Pushing a `vX.Y.Z` tag (or `vX.Y.Z-suffix` for a pre-release) runs the tests on all three platforms and creates a draft release that a maintainer publishes manually. Builds are not code-signed for 0.x releases; the release notes explain how to open the app despite OS warnings. The app shows its version in the window title.
 
 ---
 
