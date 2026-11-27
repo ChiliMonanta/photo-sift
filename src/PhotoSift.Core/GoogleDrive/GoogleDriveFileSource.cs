@@ -7,10 +7,14 @@ namespace PhotoSift.Core.GoogleDrive;
 
 /// <summary>
 /// Image files in the signed-in user's My Drive, read-only. Hashes come from Drive's
-/// <c>md5Checksum</c> metadata, so no file contents are downloaded.
+/// <c>md5Checksum</c> metadata, so no file contents are downloaded. Previews use the small
+/// thumbnails Drive generates, which also exist for formats PhotoSift cannot decode (HEIC, RAW).
 /// </summary>
-public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource
+public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource, IThumbnailProvider
 {
+    /// <summary>After this many files in a row whose thumbnails Google refuses, stop asking for thumbnails.</summary>
+    public const int MaxRefusedThumbnails = 3;
+
     public const string SourceId = "gdrive";
 
     public const string ReadOnlyReason =
@@ -18,6 +22,10 @@ public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource
 
     // Folder ids containing each scanned file (all ancestors up to My Drive), for master folder checks.
     private readonly ConcurrentDictionary<string, IReadOnlySet<string>> _ancestorsByFile = new(StringComparer.Ordinal);
+
+    // Thumbnail links from the scan's file listing, so previews need no extra metadata requests.
+    private readonly ConcurrentDictionary<string, string> _thumbnailLinks = new(StringComparer.Ordinal);
+    private int _refusedThumbnailsInARow;
 
     public string Id => SourceId;
 
@@ -111,6 +119,11 @@ public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource
                         }
 
                         _ancestorsByFile[location] = current.Ancestors.ToHashSet(StringComparer.Ordinal);
+                        if (child.ThumbnailLink is { } thumbnailLink)
+                        {
+                            _thumbnailLinks[location] = thumbnailLink;
+                        }
+
                         yield return new SourceFile(
                             location,
                             displayPath,
@@ -169,6 +182,61 @@ public sealed class GoogleDriveFileSource(IDriveSession session) : IFileSource
 
     public Task MoveToTrashAsync(ScannedFile file, CancellationToken cancellationToken) =>
         throw new InvalidOperationException(ReadOnlyReason);
+
+    /// <summary>Whether Google refused several thumbnails in a row, so no more are requested.</summary>
+    public bool ThumbnailsRefused => Volatile.Read(ref _refusedThumbnailsInARow) >= MaxRefusedThumbnails;
+
+    /// <summary>
+    /// Downloads Drive's thumbnail for the file. Uses the link from the scan; when it has expired,
+    /// gets a fresh link once. Returns null when there is no preview.
+    /// </summary>
+    public async Task<byte[]?> GetThumbnailAsync(ScannedFile file, int size, CancellationToken cancellationToken)
+    {
+        var (api, _, fileId, problem) = Resolve(file.Path, expectFolder: false);
+        if (problem is not null || ThumbnailsRefused)
+        {
+            return null;
+        }
+
+        try
+        {
+            for (var attempt = 1; ; attempt++)
+            {
+                if (!_thumbnailLinks.TryGetValue(file.Path, out var link))
+                {
+                    link = (await api!.GetItemAsync(fileId, cancellationToken).ConfigureAwait(false)).ThumbnailLink;
+                    if (link is null)
+                    {
+                        return null; // Drive has no preview for this file.
+                    }
+
+                    _thumbnailLinks[file.Path] = link;
+                }
+
+                try
+                {
+                    var bytes = await api!.DownloadThumbnailAsync(DriveThumbnails.WithSize(link, size), cancellationToken)
+                        .ConfigureAwait(false);
+                    Volatile.Write(ref _refusedThumbnailsInARow, 0);
+                    return bytes;
+                }
+                catch (DriveApiException ex) when (ex.StatusCode is 403 or 404 or 410 && attempt == 1)
+                {
+                    // The link probably expired (they last a few hours); get a new one.
+                    _thumbnailLinks.TryRemove(file.Path, out _);
+                }
+                catch (DriveApiException ex) when (ex.StatusCode is 401 or 403 or 404 or 410)
+                {
+                    Interlocked.Increment(ref _refusedThumbnailsInARow);
+                    return null;
+                }
+            }
+        }
+        catch (Exception ex) when (ex is DriveApiException or DriveSignInRequiredException or HttpRequestException)
+        {
+            return null;
+        }
+    }
 
     /// <summary>
     /// The folders from the My Drive root down to <paramref name="folderId"/>, or null when the

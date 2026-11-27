@@ -205,6 +205,95 @@ public sealed class GoogleDriveSourceTests : IDisposable
         Assert.Equal([driveFile], localMaster.Select(f => f.Path));
     }
 
+    // ---- Thumbnails ------------------------------------------------------------
+
+    private GoogleDriveFileSource DriveSource => (GoogleDriveFileSource)_sources.Get(GoogleDriveFileSource.SourceId)!;
+
+    /// <summary>Scans <paramref name="pairs"/> duplicate pairs (one copy in Photos, one in Phone) and returns all files.</summary>
+    private async Task<List<ScannedFile>> ScanDrivePairsAsync(int pairs, bool thumbnails = true)
+    {
+        for (var i = 0; i < pairs; i++)
+        {
+            var md5 = new string((char)('a' + i), 32);
+            _drive.AddFile($"{i}.heic", _photos, md5, thumbnail: thumbnails);
+            _drive.AddFile($"{i}.heic", _phone, md5, thumbnail: thumbnails);
+        }
+
+        var scan = await ScanAsync(FolderLocation(_photos));
+        Assert.Equal(pairs, scan.Groups.Count);
+        return scan.Groups.SelectMany(g => g.Files).ToList();
+    }
+
+    [Fact]
+    public async Task Thumbnails_use_the_link_from_the_scan_at_the_requested_size()
+    {
+        var file = (await ScanDrivePairsAsync(1))[0];
+        DriveLocations.TryParse(file.Path, out _, out _, out var id);
+        var getItemCallsAfterScan = _drive.GetItemCalls;
+
+        var bytes = await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None);
+
+        Assert.Equal(FakeDriveApi.ThumbnailBytesFor(id), bytes);
+        Assert.Equal([$"https://lh3.googleusercontent.com/drive-storage/{id}=s192"], _drive.ThumbnailRequests);
+        Assert.Equal(getItemCallsAfterScan, _drive.GetItemCalls); // no extra metadata request
+    }
+
+    [Fact]
+    public async Task An_expired_thumbnail_link_is_replaced_once()
+    {
+        var file = (await ScanDrivePairsAsync(1))[0];
+        _drive.ExpireThumbnailLinks();
+
+        var bytes = await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None);
+
+        Assert.NotNull(bytes);
+        Assert.Equal(2, _drive.ThumbnailRequests.Count);
+        Assert.EndsWith("x=s192", _drive.ThumbnailRequests[1]);
+    }
+
+    [Fact]
+    public async Task Thumbnails_stop_being_requested_when_Google_keeps_refusing_them()
+    {
+        var files = await ScanDrivePairsAsync(3);
+        _drive.RefuseThumbnails = true;
+
+        foreach (var file in files)
+        {
+            Assert.Null(await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None));
+        }
+
+        Assert.True(DriveSource.ThumbnailsRefused);
+        // Two attempts (the scanned link, then a fresh one) for each of the first three files, then none.
+        Assert.Equal(2 * GoogleDriveFileSource.MaxRefusedThumbnails, _drive.ThumbnailRequests.Count);
+    }
+
+    [Fact]
+    public async Task Files_without_a_Drive_preview_have_no_thumbnail()
+    {
+        var file = (await ScanDrivePairsAsync(1, thumbnails: false))[0];
+
+        Assert.Null(await DriveSource.GetThumbnailAsync(file, 192, CancellationToken.None));
+        Assert.Empty(_drive.ThumbnailRequests);
+        Assert.False(DriveSource.ThumbnailsRefused);
+    }
+
+    [Theory]
+    [InlineData("https://lh3.googleusercontent.com/drive-storage/abc=s220", true)]
+    [InlineData("https://drive.google.com/thumbnail?id=abc", true)]
+    [InlineData("http://lh3.googleusercontent.com/abc=s220", false)]
+    [InlineData("https://lh3.googleusercontent.com:8443/abc", false)]
+    [InlineData("https://googleusercontent.com.evil.example/abc", false)]
+    [InlineData("https://evil.example/?u=lh3.googleusercontent.com", false)]
+    [InlineData("not a url", false)]
+    public void The_access_token_is_only_sent_to_Google_thumbnail_hosts(string link, bool trusted) =>
+        Assert.Equal(trusted, DriveThumbnails.IsTrustedLink(link));
+
+    [Theory]
+    [InlineData("https://lh3.googleusercontent.com/x=s220", "https://lh3.googleusercontent.com/x=s192")]
+    [InlineData("https://drive.google.com/thumbnail?id=x", "https://drive.google.com/thumbnail?id=x")]
+    public void Thumbnail_links_ask_for_the_display_size(string link, string expected) =>
+        Assert.Equal(expected, DriveThumbnails.WithSize(link, 192));
+
     [Theory]
     [InlineData("gdrive://123/file/abc", true, "123", false, "abc")]
     [InlineData("gdrive://123/folder/root-id", true, "123", true, "root-id")]
