@@ -10,7 +10,7 @@ Small generated images (≈190 KB in total) that cover the MVP scenarios in [SPE
 2. Start the app: `dotnet run --project src/PhotoSift.Desktop`
 3. **Add folders…** → select the copied `test-photos` folder.
 4. **Scan for duplicates**.
-5. **Choose master folder…** → select `test-photos/Pictures`.
+5. **Add master folders…** → select `test-photos/Pictures`.
 
 ## Expected result
 
@@ -36,6 +36,7 @@ The `.heic` files are not real HEIC images. They contain random bytes and exist 
 
 ## Things to try on your copy
 
+- **Several master folders:** also add `Downloads` as a master folder. `IMG_4021.jpg` is unmarked (it is now in a master folder), and `Phone backup/DCIM/forest-copy.jpg` and `Phone backup/DCIM/IMG_0001.heic` become marked, so **5 files** are marked: `PXL_20240712.jpg`, `sunset (1).jpg`, `Phone backup/DCIM/mountain.png`, `forest-copy.jpg`, and `Phone backup/DCIM/IMG_0001.heic`. Select `Downloads` and click **Remove** to go back to the 4 files above.
 - **Safe deletion:** review and confirm the 4 marked files; they should appear in the OS trash, and the report should say "4 moved to trash".
 - **Changed file is skipped:** scan, then edit or replace `Downloads/IMG_4021.jpg` (e.g. copy `city.jpg` over it), then delete. It should be skipped with "contents have changed".
 - **All copies selected:** mark every file in the Forest group and delete. Both should be skipped because one copy must always be kept.
