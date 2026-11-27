@@ -1,11 +1,21 @@
 namespace PhotoSift.Core.Scanning;
 
 /// <summary>A scanned image file and the MD5 hash of its contents at scan time.</summary>
+/// <param name="Path">
+/// The file's unique location: an absolute path for local files, or a source URI such as
+/// <c>gdrive://account/fileId</c> for other sources (see <see cref="Sources.IFileSource"/>).
+/// </param>
 public sealed record ScannedFile(string Path, long Size, DateTime LastWriteUtc, string Hash)
 {
-    public string FileName => System.IO.Path.GetFileName(Path);
+    /// <summary>The <see cref="Sources.IFileSource.Id"/> of the source the file was found in.</summary>
+    public string SourceId { get; init; } = Sources.LocalFileSource.SourceId;
 
-    public string DirectoryPath => System.IO.Path.GetDirectoryName(Path) ?? string.Empty;
+    /// <summary>Human-readable path shown to the user. Equal to <see cref="Path"/> for local files.</summary>
+    public string DisplayPath { get; init; } = Path;
+
+    public string FileName => System.IO.Path.GetFileName(DisplayPath);
+
+    public string DirectoryPath => System.IO.Path.GetDirectoryName(DisplayPath) ?? string.Empty;
 }
 
 /// <summary>Two or more files with identical contents.</summary>

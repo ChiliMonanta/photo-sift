@@ -2,35 +2,43 @@ using System.Collections.Concurrent;
 using System.Threading.Channels;
 using PhotoSift.Core.Caching;
 using PhotoSift.Core.Hashing;
+using PhotoSift.Core.Sources;
 
 namespace PhotoSift.Core.Scanning;
 
 /// <summary>
-/// Scans folders for exact duplicate images. A producer enumerates supported image files
-/// and a pool of consumers hashes them in parallel (using the hash cache when possible).
+/// Scans folders for exact duplicate images. A producer enumerates supported image files from
+/// each folder's source and a pool of consumers hashes them in parallel. Files from different
+/// sources are compared with each other, so a local photo and a cloud copy form one group.
 /// </summary>
 public sealed class DuplicateScanner
 {
     private static readonly TimeSpan ProgressInterval = TimeSpan.FromMilliseconds(100);
 
-    private readonly IFileHasher _hasher;
-    private readonly IHashCache _cache;
     private readonly int _workerCount;
 
-    public DuplicateScanner(IFileHasher hasher, IHashCache cache, int? workerCount = null)
+    public DuplicateScanner(FileSources sources, int? workerCount = null)
     {
-        _hasher = hasher;
-        _cache = cache;
+        Sources = sources;
         _workerCount = workerCount ?? Math.Clamp(Environment.ProcessorCount, 1, 8);
     }
 
+    /// <summary>Scans the local file system only.</summary>
+    public DuplicateScanner(IFileHasher hasher, IHashCache cache, int? workerCount = null)
+        : this(new FileSources(new LocalFileSource(hasher, cache)), workerCount)
+    {
+    }
+
+    public FileSources Sources { get; }
+
+    /// <param name="rootFolders">Folder locations; each is scanned by the source that owns it.</param>
     public async Task<ScanResult> ScanAsync(
         IReadOnlyList<string> rootFolders,
         IProgress<ScanProgress>? progress = null,
         CancellationToken cancellationToken = default)
     {
         var state = new ScanState();
-        var channel = Channel.CreateBounded<FileCandidate>(new BoundedChannelOptions(1024)
+        var channel = Channel.CreateBounded<Candidate>(new BoundedChannelOptions(1024)
         {
             SingleWriter = true,
             SingleReader = false,
@@ -88,89 +96,48 @@ public sealed class DuplicateScanner
             wasCanceled);
     }
 
-    private static async Task ProduceAsync(
+    private async Task ProduceAsync(
         IReadOnlyList<string> rootFolders,
-        ChannelWriter<FileCandidate> writer,
+        ChannelWriter<Candidate> writer,
         ScanState state,
         CancellationToken cancellationToken)
     {
         try
         {
-            var visitedDirectories = new HashSet<string>(PathUtil.Comparer);
-            var seenFiles = new HashSet<string>(PathUtil.Comparer);
-
-            foreach (var rootFolder in rootFolders)
+            // Each folder goes to the source that owns it; sources are scanned in the order
+            // their first folder appears.
+            var foldersBySource = new List<(IFileSource Source, List<string> Folders)>();
+            foreach (var folder in rootFolders)
             {
-                string root;
-                try
+                var source = Sources.FindOwner(folder);
+                if (source is null)
                 {
-                    root = PathUtil.Normalize(rootFolder);
-                }
-                catch (Exception ex) when (ex is ArgumentException or IOException or NotSupportedException or System.Security.SecurityException)
-                {
-                    state.Errors.Add(new ScanError(rootFolder, $"Invalid folder path: {ex.Message}"));
+                    state.AddError(new ScanError(folder, "No available source can scan this location."));
                     continue;
                 }
 
-                if (!Directory.Exists(root))
+                var entry = foldersBySource.FirstOrDefault(e => e.Source == source);
+                if (entry.Source is null)
                 {
-                    state.Errors.Add(new ScanError(root, "Folder does not exist or is not accessible."));
-                    continue;
+                    foldersBySource.Add(entry = (source, []));
                 }
 
-                var pending = new Stack<string>();
-                pending.Push(root);
+                entry.Folders.Add(folder);
+            }
 
-                while (pending.TryPop(out var directory))
+            var seen = new HashSet<string>(PathUtil.Comparer);
+            foreach (var (source, folders) in foldersBySource)
+            {
+                await foreach (var file in source.EnumerateAsync(folders, state, cancellationToken).ConfigureAwait(false))
                 {
-                    cancellationToken.ThrowIfCancellationRequested();
-
-                    // Overlapping root folders must not make a file appear twice, or it would
-                    // be grouped as a duplicate of itself.
-                    if (!visitedDirectories.Add(directory))
+                    // A file must never be grouped as a duplicate of itself.
+                    if (!seen.Add(file.Location))
                     {
                         continue;
                     }
 
-                    List<FileSystemInfo> entries;
-                    try
-                    {
-                        entries = new DirectoryInfo(directory).EnumerateFileSystemInfos().ToList();
-                    }
-                    catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or System.Security.SecurityException)
-                    {
-                        state.Errors.Add(new ScanError(directory, $"Folder could not be read: {ex.Message}"));
-                        continue;
-                    }
-
-                    foreach (var entry in entries.OrderBy(e => e.Name, PathUtil.Comparer))
-                    {
-                        // Symbolic links and junctions are not followed: a linked file is the same
-                        // physical file as its target, so deleting one "copy" would delete both.
-                        if (entry.LinkTarget is not null)
-                        {
-                            if (entry is DirectoryInfo || ImageFormats.IsSupported(entry.Name))
-                            {
-                                state.Notices.Add(new ScanNotice(entry.FullName, "Skipped symbolic link or junction."));
-                            }
-
-                            continue;
-                        }
-
-                        switch (entry)
-                        {
-                            case DirectoryInfo subdirectory:
-                                pending.Push(subdirectory.FullName);
-                                break;
-
-                            case FileInfo file when ImageFormats.IsSupported(file.Name) && seenFiles.Add(file.FullName):
-                                state.IncrementDiscovered();
-                                await writer.WriteAsync(
-                                    new FileCandidate(file.FullName, file.Length, file.LastWriteTimeUtc),
-                                    cancellationToken).ConfigureAwait(false);
-                                break;
-                        }
-                    }
+                    state.IncrementDiscovered();
+                    await writer.WriteAsync(new Candidate(source, file), cancellationToken).ConfigureAwait(false);
                 }
             }
         }
@@ -181,23 +148,22 @@ public sealed class DuplicateScanner
         }
     }
 
-    private async Task ConsumeAsync(
-        ChannelReader<FileCandidate> reader,
+    private static async Task ConsumeAsync(
+        ChannelReader<Candidate> reader,
         ScanState state,
         CancellationToken cancellationToken)
     {
-        await foreach (var candidate in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
+        await foreach (var (source, file) in reader.ReadAllAsync(cancellationToken).ConfigureAwait(false))
         {
             try
             {
-                var hash = TryGetCachedHash(candidate, state);
-                if (hash is null)
+                // Sources report lowercase hex, but normalize so local and cloud copies always match.
+                var hash = (await source.GetHashAsync(file, state, cancellationToken).ConfigureAwait(false)).ToLowerInvariant();
+                state.Files.Add(new ScannedFile(file.Location, file.Size, file.LastWriteUtc, hash)
                 {
-                    hash = await _hasher.ComputeHashAsync(candidate.Path, cancellationToken).ConfigureAwait(false);
-                    TryCacheHash(candidate, hash, state);
-                }
-
-                state.Files.Add(new ScannedFile(candidate.Path, candidate.Size, candidate.LastWriteUtc, hash));
+                    SourceId = source.Id,
+                    DisplayPath = file.DisplayPath,
+                });
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
@@ -205,7 +171,7 @@ public sealed class DuplicateScanner
             }
             catch (Exception ex)
             {
-                state.Errors.Add(new ScanError(candidate.Path, $"File could not be read: {ex.Message}"));
+                state.AddError(new ScanError(file.DisplayPath, $"File could not be read: {ex.Message}"));
             }
             finally
             {
@@ -214,38 +180,13 @@ public sealed class DuplicateScanner
         }
     }
 
-    private string? TryGetCachedHash(FileCandidate candidate, ScanState state)
-    {
-        try
-        {
-            return _cache.TryGet(candidate.Path, candidate.Size, candidate.LastWriteUtc);
-        }
-        catch (Exception ex)
-        {
-            state.ReportCacheFailure(candidate.Path, ex);
-            return null;
-        }
-    }
+    private sealed record Candidate(IFileSource Source, SourceFile File);
 
-    private void TryCacheHash(FileCandidate candidate, string hash, ScanState state)
+    private sealed class ScanState : IScanSink
     {
-        try
-        {
-            _cache.Set(candidate.Path, candidate.Size, candidate.LastWriteUtc, hash);
-        }
-        catch (Exception ex)
-        {
-            state.ReportCacheFailure(candidate.Path, ex);
-        }
-    }
-
-    private sealed record FileCandidate(string Path, long Size, DateTime LastWriteUtc);
-
-    private sealed class ScanState
-    {
+        private readonly ConcurrentDictionary<string, byte> _onceKeys = new(StringComparer.Ordinal);
         private int _discovered;
         private int _processed;
-        private int _cacheFailureReported;
 
         public ConcurrentBag<ScannedFile> Files { get; } = [];
 
@@ -255,20 +196,23 @@ public sealed class DuplicateScanner
 
         public volatile bool EnumerationComplete;
 
+        public void AddError(ScanError error) => Errors.Add(error);
+
+        public void AddNotice(ScanNotice notice) => Notices.Add(notice);
+
+        public void AddNoticeOnce(string key, ScanNotice notice)
+        {
+            if (_onceKeys.TryAdd(key, 0))
+            {
+                Notices.Add(notice);
+            }
+        }
+
         public void IncrementDiscovered() => Interlocked.Increment(ref _discovered);
 
         public void IncrementProcessed() => Interlocked.Increment(ref _processed);
 
         public ScanProgress Snapshot() =>
             new(Volatile.Read(ref _discovered), Volatile.Read(ref _processed), EnumerationComplete);
-
-        /// <summary>The cache is an optimization; failures are reported once and do not affect results.</summary>
-        public void ReportCacheFailure(string path, Exception ex)
-        {
-            if (Interlocked.Exchange(ref _cacheFailureReported, 1) == 0)
-            {
-                Notices.Add(new ScanNotice(path, $"Hash cache unavailable; files are hashed without caching: {ex.Message}"));
-            }
-        }
     }
 }

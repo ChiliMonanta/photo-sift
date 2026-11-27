@@ -123,8 +123,32 @@ RUN dotnet new install Avalonia.Templates
 
 ---
 
-## 8. Future Features (Post-MVP)
-* **Google Drive support:** Connect with OAuth 2.0, scan selected folders or all of Drive, compare Drive files with each other and with local folders, and move selected duplicates to the Drive trash.
+## 8. Google Drive (Post-MVP, Planned)
+
+Anyone who downloads PhotoSift can connect **their own Google Drive** as an alternative or addition to local folders. Delivered in stages:
+
+1. **File sources (done):** Core scans, verifies, and trashes files through file sources (`IFileSource`). The local file system is the first source; every file has a source id, a unique location (an absolute path, or a URI such as `gdrive://<account>/<fileId>` for other sources), and a display path. Files from different sources are compared with each other.
+2. **Read-only Drive (first Drive release):**
+   * **Scope:** only the user's own **My Drive**. Shared drives and files shared with the user are not scanned.
+   * **Access:** OAuth 2.0 with the narrowest scope that works, `drive.metadata.readonly`. The app never reads photo contents from Drive.
+   * **Scanning:** Drive folders are chosen in an in-app Drive folder browser and can be combined with local folders. Hashes come from Drive's `md5Checksum` metadata, so no files are downloaded; local and Drive copies with the same MD5 are grouped together. Files without a checksum and shortcuts are reported, like errors and notes for local files. Drive folders can be master folders.
+   * **Deletion:** Drive files cannot be moved to the trash in this release; they can be kept copies when deleting local duplicates. Selecting a Drive file for deletion is prevented, and any that reach deletion are skipped with the reason.
+   * **Thumbnails:** loaded lazily from Drive's thumbnail link when the scope allows it; otherwise the placeholder is shown.
+3. **Drive trash (later release):** moving Drive files to the **Drive trash** (`files.update` with `trashed: true`, never `files.delete`), after revalidating each file's metadata and `md5Checksum` against the scan. Files the user cannot trash are skipped and reported. Requires the broader `drive` scope and a new Google review.
+
+**Sign-in and credentials:**
+* OAuth for installed apps: system browser, loopback redirect (`127.0.0.1`), and PKCE.
+* The OAuth client ID and client secret are embedded in released builds. For desktop apps they are not confidential (RFC 8252 "public client"); security comes from the user's consent and PKCE. They are kept out of the repository: release builds receive them from a GitHub Actions secret, and developers use `dotnet user-secrets`. An advanced setting lets users supply their own client ID.
+* Users' access and refresh tokens are stored only in the OS's secure storage (Windows DPAPI, macOS Keychain, libsecret on Linux), never in plain files. Users can disconnect, which deletes the tokens.
+* Google requires verification for public apps that use restricted Drive scopes (privacy policy and home page on a verified domain, a demo video, and a scope justification). Until verified, the app runs in Testing mode with listed test users.
+
+**Safety:** if a scanned local folder is inside a Google Drive for desktop folder (e.g. `G:\My Drive`, `~/Library/CloudStorage/GoogleDrive-*`) and Drive is also scanned through the API, the app warns that the same file may appear twice and that deleting the local copy also deletes it from Drive.
+
+**Not covered:** Google Photos (a separate service, not visible through the Drive API).
+
+---
+
+## 9. Future Features (Post-MVP)
 * Scheduled background scanning.
 * EXIF handling (the ability to copy metadata from a duplicate before deleting it).
 * Support for additional cloud services (OneDrive, Dropbox).
@@ -132,7 +156,7 @@ RUN dotnet new install Avalonia.Templates
 
 ---
 
-## 9. MVP Acceptance Criteria
+## 10. MVP Acceptance Criteria
 * Only supported image files in the selected local folders and subfolders are scanned; non-image files are excluded.
 * Files with identical contents are grouped together regardless of filename or folder. Groups contain all copies, including groups with three or more files; modified or re-encoded images are not grouped as exact duplicates.
 * A master-folder selection keeps copies in any of the selected master folders and marks matching copies outside all of them for deletion. If no copy exists in a master folder, no file in that group is selected automatically.

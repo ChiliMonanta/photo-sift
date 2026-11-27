@@ -5,6 +5,7 @@ using PhotoSift.Core.Caching;
 using PhotoSift.Core.Deletion;
 using PhotoSift.Core.Hashing;
 using PhotoSift.Core.Scanning;
+using PhotoSift.Core.Sources;
 using PhotoSift.Desktop.Platform;
 using PhotoSift.Desktop.Services;
 using PhotoSift.Desktop.ViewModels;
@@ -21,12 +22,13 @@ public partial class App : Application
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
             var (cache, cacheWarning) = OpenHashCache();
-            var hasher = new Md5FileHasher();
+            var sources = new FileSources(
+                new LocalFileSource(new Md5FileHasher(), cache, TrashServiceFactory.Create()));
             var window = new MainWindow { Title = AppInfo.WindowTitle };
 
             window.DataContext = new MainWindowViewModel(
-                new DuplicateScanner(hasher, cache),
-                new SafeDeleter(hasher, TrashServiceFactory.Create()),
+                new DuplicateScanner(sources),
+                new SafeDeleter(sources),
                 new FolderPicker(window),
                 new ThumbnailLoader(),
                 cacheWarning);
