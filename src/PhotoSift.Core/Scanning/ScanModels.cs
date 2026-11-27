@@ -13,9 +13,16 @@ public sealed record ScannedFile(string Path, long Size, DateTime LastWriteUtc, 
     /// <summary>Human-readable path shown to the user. Equal to <see cref="Path"/> for local files.</summary>
     public string DisplayPath { get; init; } = Path;
 
-    public string FileName => System.IO.Path.GetFileName(DisplayPath);
+    public bool IsLocal => SourceId == Sources.LocalFileSource.SourceId;
 
-    public string DirectoryPath => System.IO.Path.GetDirectoryName(DisplayPath) ?? string.Empty;
+    // Display paths of other sources always use '/', on every OS.
+    public string FileName => IsLocal
+        ? System.IO.Path.GetFileName(DisplayPath)
+        : DisplayPath[(DisplayPath.LastIndexOf('/') + 1)..];
+
+    public string DirectoryPath => IsLocal
+        ? System.IO.Path.GetDirectoryName(DisplayPath) ?? string.Empty
+        : DisplayPath[..Math.Max(0, DisplayPath.LastIndexOf('/'))];
 }
 
 /// <summary>Two or more files with identical contents.</summary>

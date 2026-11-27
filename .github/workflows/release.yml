@@ -91,6 +91,11 @@ jobs:
 
       - name: Publish
         shell: bash
+        env:
+          # Only tagged releases get the Google OAuth client (see docs/google-oauth-setup.md). MSBuild reads
+          # these as properties. Build-only runs, whose artifacts anyone can download, are built without it.
+          GoogleDriveClientId: ${{ github.ref_type == 'tag' && secrets.GOOGLE_DRIVE_CLIENT_ID || '' }}
+          GoogleDriveClientSecret: ${{ github.ref_type == 'tag' && secrets.GOOGLE_DRIVE_CLIENT_SECRET || '' }}
         run: |
           dotnet publish src/PhotoSift.Desktop/PhotoSift.Desktop.csproj \
             --configuration Release \
