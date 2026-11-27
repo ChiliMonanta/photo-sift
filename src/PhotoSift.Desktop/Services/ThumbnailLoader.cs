@@ -97,14 +97,16 @@ public sealed class ThumbnailLoader(
             return new ThumbnailResult(cached, null);
         }
 
+        string? lastProblem = null;
         foreach (var (file, provider) in withProvider)
         {
             await _remoteGate.WaitAsync().ConfigureAwait(false);
             try
             {
-                var bytes = await provider!.GetThumbnailAsync(file, width, CancellationToken.None).ConfigureAwait(false);
-                if (bytes is null)
+                var data = await provider!.GetThumbnailAsync(file, width, CancellationToken.None).ConfigureAwait(false);
+                if (data.Bytes is not { } bytes)
                 {
+                    lastProblem = data.Problem;
                     continue;
                 }
 
@@ -120,9 +122,10 @@ public sealed class ThumbnailLoader(
 
                 return new ThumbnailResult(bitmap, null);
             }
-            catch (Exception)
+            catch (Exception ex)
             {
-                // Try the next copy; a failed preview is not an error worth reporting.
+                // Try the next copy.
+                lastProblem = $"The Google Drive preview could not be shown: {ex.Message}";
             }
             finally
             {
@@ -130,6 +133,6 @@ public sealed class ThumbnailLoader(
             }
         }
 
-        return new ThumbnailResult(null, "No preview available from Google Drive.");
+        return new ThumbnailResult(null, lastProblem ?? "No preview available from Google Drive.");
     }
 }
