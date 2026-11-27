@@ -21,6 +21,25 @@ public sealed class FakeDriveApi : IDriveApi
 
     public HashSet<string> FailListingFor { get; } = new(StringComparer.Ordinal);
 
+    public int GetItemCalls { get; private set; }
+
+    /// <summary>Every thumbnail link that was downloaded (or attempted).</summary>
+    public List<string> ThumbnailRequests { get; } = [];
+
+    /// <summary>Simulates a scope that does not allow thumbnails: every download is refused (403).</summary>
+    public bool RefuseThumbnails { get; set; }
+
+    /// <summary>Gives every file a new thumbnail link; the old links are refused, as when they expire.</summary>
+    public void ExpireThumbnailLinks()
+    {
+        foreach (var item in _items.Values.Where(i => i.ThumbnailLink is not null).ToList())
+        {
+            _items[item.Id] = item with { ThumbnailLink = item.ThumbnailLink!.Replace("=s220", "x=s220") };
+        }
+    }
+
+    public static byte[] ThumbnailBytesFor(string id) => [1, 2, (byte)id.Length];
+
     public string AddFolder(string name, string parentId = RootId) =>
         Add(new DriveItem(NewId(), name, DriveItem.FolderMimeType, null, null, DateTime.UnixEpoch, [parentId]));
 
@@ -28,8 +47,12 @@ public sealed class FakeDriveApi : IDriveApi
     public string AddForeignFolder(string name) =>
         Add(new DriveItem(NewId(), name, DriveItem.FolderMimeType, null, null, DateTime.UnixEpoch, []));
 
-    public string AddFile(string name, string parentId, string? md5, long size = 4096, string mimeType = "image/jpeg") =>
-        Add(new DriveItem(NewId(), name, mimeType, size, md5, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc), [parentId]));
+    public string AddFile(string name, string parentId, string? md5, long size = 4096, string mimeType = "image/jpeg", bool thumbnail = true)
+    {
+        var id = NewId();
+        return Add(new DriveItem(id, name, mimeType, size, md5, new DateTime(2024, 5, 1, 0, 0, 0, DateTimeKind.Utc), [parentId],
+            ThumbnailLink: thumbnail ? $"https://lh3.googleusercontent.com/drive-storage/{id}=s220" : null));
+    }
 
     public void Update(string id, Func<DriveItem, DriveItem> change) => _items[id] = change(_items[id]);
 
@@ -37,10 +60,23 @@ public sealed class FakeDriveApi : IDriveApi
 
     public Task<DriveAccount> GetAccountAsync(CancellationToken cancellationToken) => Task.FromResult(Account);
 
-    public Task<DriveItem> GetItemAsync(string id, CancellationToken cancellationToken) =>
-        _items.TryGetValue(id == "root" ? RootId : id, out var item)
+    public Task<DriveItem> GetItemAsync(string id, CancellationToken cancellationToken)
+    {
+        GetItemCalls++;
+        return _items.TryGetValue(id == "root" ? RootId : id, out var item)
             ? Task.FromResult(item)
             : throw new DriveApiException(404, "File not found.");
+    }
+
+    public Task<byte[]> DownloadThumbnailAsync(string thumbnailLink, CancellationToken cancellationToken)
+    {
+        ThumbnailRequests.Add(thumbnailLink);
+        var current = _items.Values.FirstOrDefault(i =>
+            i.ThumbnailLink is { } link && DriveThumbnails.WithSize(link, 0) == DriveThumbnails.WithSize(thumbnailLink, 0));
+        return RefuseThumbnails || current is null
+            ? throw new DriveApiException(403, "Forbidden (simulated).")
+            : Task.FromResult(ThumbnailBytesFor(current.Id));
+    }
 
     public Task<IReadOnlyList<DriveItem>> ListChildrenAsync(string folderId, bool foldersOnly, CancellationToken cancellationToken)
     {

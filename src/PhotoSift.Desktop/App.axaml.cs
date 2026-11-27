@@ -44,7 +44,7 @@ public partial class App : Application
                 new DuplicateScanner(sources),
                 new SafeDeleter(sources),
                 new FolderPicker(window),
-                new ThumbnailLoader(),
+                new ThumbnailLoader(sources),
                 cacheWarning,
                 driveViewModel);
 

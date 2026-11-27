@@ -153,15 +153,7 @@ public sealed partial class DuplicateGroupViewModel : ObservableObject
     {
         try
         {
-            // Thumbnails come from local copies only; Drive files are not downloaded.
-            var localPaths = Group.Files.Where(f => f.IsLocal).Select(f => f.Path).ToList();
-            if (localPaths.Count == 0)
-            {
-                ThumbnailStatus = "No preview for Google Drive files.";
-                return;
-            }
-
-            var result = await _thumbnailLoader.LoadAsync(localPaths);
+            var result = await _thumbnailLoader.LoadAsync(Group.Files);
             _thumbnail = result.Bitmap;
             HasThumbnail = result.Bitmap is not null;
             ThumbnailStatus = result.Problem ?? string.Empty;

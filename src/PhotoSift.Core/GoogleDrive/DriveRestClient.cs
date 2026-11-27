@@ -25,7 +25,8 @@ public sealed class DriveRestClient(
 {
     public const string BaseUri = "https://www.googleapis.com/drive/v3/";
 
-    private const string ItemFields = "id,name,mimeType,size,md5Checksum,modifiedTime,parents,trashed";
+    private const string ItemFields = "id,name,mimeType,size,md5Checksum,modifiedTime,parents,trashed,thumbnailLink";
+    private const int MaxThumbnailBytes = 2 * 1024 * 1024;
     private const int MaxAttempts = 4;
 
     private readonly Func<TimeSpan, CancellationToken, Task> _delay = delay ?? Task.Delay;
@@ -71,6 +72,47 @@ public sealed class DriveRestClient(
         while (pageToken is not null);
 
         return items;
+    }
+
+    public async Task<byte[]> DownloadThumbnailAsync(string thumbnailLink, CancellationToken cancellationToken)
+    {
+        // The access token is sent with the request, so only to Google's own image hosts over HTTPS.
+        if (!DriveThumbnails.IsTrustedLink(thumbnailLink))
+        {
+            throw new DriveApiException(0, "Google Drive returned a thumbnail link to an unexpected address.");
+        }
+
+        var refreshedToken = false;
+        while (true)
+        {
+            var token = await tokens.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Get, thumbnailLink);
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+
+            using var response = await http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken)
+                .ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshedToken)
+            {
+                tokens.InvalidateAccessToken(token);
+                refreshedToken = true;
+                continue;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                throw new DriveApiException((int)response.StatusCode, $"Google Drive returned {(int)response.StatusCode} for a thumbnail.");
+            }
+
+            if (response.Content.Headers.ContentLength > MaxThumbnailBytes)
+            {
+                throw new DriveApiException(0, "The Google Drive thumbnail is unexpectedly large.");
+            }
+
+            var bytes = await response.Content.ReadAsByteArrayAsync(cancellationToken).ConfigureAwait(false);
+            return bytes.Length <= MaxThumbnailBytes
+                ? bytes
+                : throw new DriveApiException(0, "The Google Drive thumbnail is unexpectedly large.");
+        }
     }
 
     /// <summary>Escapes a value inside single quotes in a Drive search query.</summary>
@@ -164,6 +206,7 @@ public sealed class DriveRestClient(
                 ? DateTime.UnixEpoch
                 : DateTime.Parse(modified, CultureInfo.InvariantCulture, DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal),
             parents,
-            e.TryGetProperty("trashed", out var t) && t.ValueKind == JsonValueKind.True);
+            e.TryGetProperty("trashed", out var t) && t.ValueKind == JsonValueKind.True,
+            Str("thumbnailLink"));
     }
 }

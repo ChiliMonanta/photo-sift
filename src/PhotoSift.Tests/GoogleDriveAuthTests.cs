@@ -322,6 +322,25 @@ public sealed class GoogleDriveAuthTests
     }
 
     [Fact]
+    public async Task Thumbnails_are_downloaded_with_the_access_token_only_from_Google()
+    {
+        var handler = new FakeHttpHandler((_, _) => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new ByteArrayContent([1, 2, 3]),
+        });
+        var client = Rest(handler, new Tokens());
+
+        var bytes = await client.DownloadThumbnailAsync("https://lh3.googleusercontent.com/x=s192", CancellationToken.None);
+        await Assert.ThrowsAsync<DriveApiException>(() =>
+            client.DownloadThumbnailAsync("https://evil.example/x=s192", CancellationToken.None));
+
+        Assert.Equal([1, 2, 3], bytes);
+        var (request, _) = Assert.Single(handler.Requests);
+        Assert.Equal("https://lh3.googleusercontent.com/x=s192", request.RequestUri!.AbsoluteUri);
+        Assert.Equal("token-1", request.Headers.Authorization!.Parameter);
+    }
+
+    [Fact]
     public async Task Missing_files_are_reported_as_not_found_without_retrying()
     {
         var handler = new FakeHttpHandler((_, _) =>
