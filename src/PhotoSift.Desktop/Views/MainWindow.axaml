@@ -1,0 +1,165 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:PhotoSift.Desktop.ViewModels"
+        x:Class="PhotoSift.Desktop.Views.MainWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Title="PhotoSift"
+        Width="1100" Height="760" MinWidth="720" MinHeight="480">
+
+  <Window.Styles>
+    <Style Selector="TextBlock.muted">
+      <Setter Property="Opacity" Value="0.7" />
+    </Style>
+    <Style Selector="TextBlock.heading">
+      <Setter Property="FontWeight" Value="SemiBold" />
+      <Setter Property="FontSize" Value="15" />
+    </Style>
+    <Style Selector="Border.card">
+      <Setter Property="BorderBrush" Value="{DynamicResource SystemControlForegroundBaseLowBrush}" />
+      <Setter Property="BorderThickness" Value="1" />
+      <Setter Property="CornerRadius" Value="6" />
+      <Setter Property="Padding" Value="12" />
+    </Style>
+  </Window.Styles>
+
+  <Panel>
+    <DockPanel Margin="16">
+
+      <!-- Folder selection -->
+      <Grid DockPanel.Dock="Top" ColumnDefinitions="*,16,*" Margin="0,0,0,12">
+        <Border Classes="card">
+          <DockPanel>
+            <TextBlock DockPanel.Dock="Top" Classes="heading" Text="Folders to scan" Margin="0,0,0,8" />
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+              <Button Content="Add folders…" Command="{Binding AddFoldersCommand}" />
+              <Button Content="Remove" Command="{Binding RemoveFolderCommand}" />
+            </StackPanel>
+            <ListBox ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}"
+                     MinHeight="64" MaxHeight="120" />
+          </DockPanel>
+        </Border>
+
+        <Border Grid.Column="2" Classes="card">
+          <StackPanel Spacing="8">
+            <TextBlock Classes="heading" Text="Master folder" />
+            <TextBlock TextWrapping="Wrap" Classes="muted"
+                       Text="In groups with a copy in the master folder, all copies outside it are marked for deletion. Groups without a master copy are not changed." />
+            <TextBlock Text="{Binding MasterFolderDisplay}" TextWrapping="Wrap" FontWeight="SemiBold" />
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Choose master folder…" Command="{Binding ChooseMasterFolderCommand}" />
+              <Button Content="Apply again" Command="{Binding ApplyMasterFolderCommand}" />
+              <Button Content="Clear" Command="{Binding ClearMasterFolderCommand}" />
+            </StackPanel>
+          </StackPanel>
+        </Border>
+      </Grid>
+
+      <!-- Scan controls -->
+      <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+        <StackPanel Orientation="Horizontal" Spacing="8">
+          <Button Content="Scan for duplicates" Command="{Binding ScanCommand}" Classes="accent" />
+          <Button Content="Cancel scan" Command="{Binding ScanCancelCommand}" IsVisible="{Binding IsScanning}" />
+        </StackPanel>
+        <ProgressBar Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
+                     IsIndeterminate="{Binding IsProgressIndeterminate}" />
+        <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+        <Border Background="#33FFA500" CornerRadius="4" Padding="8" IsVisible="{Binding IsScanIncomplete}">
+          <TextBlock Text="{Binding ScanSummary}" TextWrapping="Wrap" FontWeight="SemiBold" />
+        </Border>
+      </StackPanel>
+
+      <!-- Deletion bar -->
+      <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,12,0,0">
+        <DockPanel>
+          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+            <Button Content="Clear marks" Command="{Binding ClearMarksCommand}" />
+            <Button Content="Review and move to trash…" Command="{Binding ReviewDeletionCommand}" Classes="accent" />
+          </StackPanel>
+          <TextBlock Text="{Binding MarkedSummary}" VerticalAlignment="Center" />
+        </DockPanel>
+      </Border>
+
+      <!-- Issues -->
+      <Expander DockPanel.Dock="Bottom" Header="Errors and notes" HorizontalAlignment="Stretch" Margin="0,12,0,0"
+                IsVisible="{Binding HasIssues}">
+        <ListBox ItemsSource="{Binding Issues}" MaxHeight="160" />
+      </Expander>
+
+      <!-- Duplicate groups (virtualized: thumbnails load only for displayed groups) -->
+      <ListBox ItemsSource="{Binding Groups}">
+        <ListBox.ItemTemplate>
+          <DataTemplate x:DataType="vm:DuplicateGroupViewModel">
+            <Grid ColumnDefinitions="Auto,16,*" Margin="0,6">
+              <Border Width="144" Height="144" CornerRadius="4" ClipToBounds="True"
+                      Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+                <Panel>
+                  <Image Source="{Binding Thumbnail}" Stretch="Uniform" IsVisible="{Binding HasThumbnail}" />
+                  <TextBlock Text="{Binding ThumbnailStatus}" IsVisible="{Binding !HasThumbnail}"
+                             TextWrapping="Wrap" TextAlignment="Center" Margin="8"
+                             HorizontalAlignment="Center" VerticalAlignment="Center" Classes="muted" />
+                </Panel>
+              </Border>
+              <StackPanel Grid.Column="2" Spacing="4">
+                <TextBlock Text="{Binding Header}" Classes="heading" />
+                <ItemsControl ItemsSource="{Binding Files}">
+                  <ItemsControl.ItemTemplate>
+                    <DataTemplate x:DataType="vm:FileEntryViewModel">
+                      <CheckBox IsChecked="{Binding IsMarked}" IsEnabled="{Binding CanMark}">
+                        <StackPanel>
+                          <StackPanel Orientation="Horizontal" Spacing="8">
+                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" />
+                            <TextBlock Text="(master folder)" IsVisible="{Binding IsInMasterFolder}" Foreground="SeaGreen" />
+                            <TextBlock Text="(moved to trash)" IsVisible="{Binding IsTrashed}" Foreground="IndianRed" />
+                            <TextBlock Text="(kept — at least one copy must remain)" IsVisible="{Binding IsLastKeptCopy}" Classes="muted" />
+                          </StackPanel>
+                          <TextBlock Text="{Binding DirectoryPath}" Classes="muted" TextWrapping="Wrap" />
+                        </StackPanel>
+                      </CheckBox>
+                    </DataTemplate>
+                  </ItemsControl.ItemTemplate>
+                </ItemsControl>
+              </StackPanel>
+            </Grid>
+          </DataTemplate>
+        </ListBox.ItemTemplate>
+      </ListBox>
+    </DockPanel>
+
+    <!-- Confirmation and report overlay -->
+    <Border Background="#99000000" IsVisible="{Binding IsOverlayVisible}">
+      <Border Background="{DynamicResource SystemControlBackgroundAltHighBrush}" CornerRadius="8" Padding="20"
+              MaxWidth="900" Margin="40" HorizontalAlignment="Center" VerticalAlignment="Center">
+        <Panel>
+          <DockPanel IsVisible="{Binding IsConfirmingDeletion}">
+            <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+              <TextBlock Classes="heading" Text="Move these files to the trash?" />
+              <TextBlock TextWrapping="Wrap"
+                         Text="Each file is checked against its scanned hash first. Changed, missing, or unreadable files are skipped and reported. At least one verified copy of every image is always kept." />
+            </StackPanel>
+            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" HorizontalAlignment="Right" Margin="0,12,0,0">
+              <Button Content="Cancel" Command="{Binding CancelDeletionCommand}" IsCancel="True" />
+              <Button Content="Move to trash" Command="{Binding ConfirmDeletionCommand}" Classes="accent" />
+            </StackPanel>
+            <ListBox ItemsSource="{Binding PendingDeletion}" MaxHeight="420">
+              <ListBox.ItemTemplate>
+                <DataTemplate x:DataType="vm:FileEntryViewModel">
+                  <TextBlock Text="{Binding Path}" TextWrapping="Wrap" />
+                </DataTemplate>
+              </ListBox.ItemTemplate>
+            </ListBox>
+          </DockPanel>
+
+          <DockPanel IsVisible="{Binding IsShowingDeletionReport}">
+            <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+              <TextBlock Classes="heading" Text="Deletion result" />
+              <TextBlock Text="{Binding DeletionReportSummary}" TextWrapping="Wrap" />
+            </StackPanel>
+            <Button DockPanel.Dock="Bottom" Content="Close" Command="{Binding CloseDeletionReportCommand}"
+                    HorizontalAlignment="Right" Margin="0,12,0,0" />
+            <ListBox ItemsSource="{Binding DeletionReportLines}" MaxHeight="420" />
+          </DockPanel>
+        </Panel>
+      </Border>
+    </Border>
+  </Panel>
+</Window>
