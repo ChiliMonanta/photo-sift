@@ -22,7 +22,6 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
     {
         _connection = connection;
         _openBrowser = openBrowser;
-        _connection.Changed += (_, _) => UpdateState();
         UpdateState();
     }
 
@@ -54,6 +53,7 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
         try
         {
             _connection.Restore();
+            UpdateState();
         }
         catch (Exception ex)
         {

@@ -48,9 +48,6 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
         _api = apiFactory(this);
     }
 
-    /// <summary>Raised when the connected account changes.</summary>
-    public event EventHandler? Changed;
-
     /// <summary>Null when Google Drive can be connected; otherwise the reason it cannot.</summary>
     public string? UnavailableReason => _oauth is null
         ? "This build has no Google OAuth client configured (see docs/google-oauth-setup.md)."
@@ -70,10 +67,12 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
 
         _stored = _store.Load();
         _current = null;
-        Changed?.Invoke(this, EventArgs.Empty);
     }
 
-    /// <summary>Signs in through the browser, then saves the sign-in. Replaces any connected account.</summary>
+    /// <summary>
+    /// Signs in through the browser, then saves the sign-in. Replaces any connected account.
+    /// Continues on a thread-pool thread; callers update their UI after it returns.
+    /// </summary>
     public async Task<DriveAccount> ConnectAsync(Func<Uri, CancellationToken, Task> openBrowser, CancellationToken cancellationToken)
     {
         if (UnavailableReason is { } reason)
@@ -93,11 +92,11 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
             var stored = new StoredDriveAccount(tokens.RefreshToken!, account.PermissionId, account.Email);
             _store.Save(stored);
             _stored = stored;
-            Changed?.Invoke(this, EventArgs.Empty);
             return account;
         }
         catch
         {
+            // Nothing was saved, so return to the previous account.
             (_stored, _current) = previous;
             throw;
         }
@@ -112,14 +111,7 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
         var stored = _stored;
         _stored = null;
         _current = null;
-        try
-        {
-            _store.Delete();
-        }
-        finally
-        {
-            Changed?.Invoke(this, EventArgs.Empty);
-        }
+        _store.Delete();
 
         if (stored is not null && _oauth is not null)
         {
