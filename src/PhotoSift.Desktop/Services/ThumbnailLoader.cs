@@ -45,6 +45,9 @@ public sealed class ThumbnailLoader(
         return remote ?? local;
     }
 
+    /// <summary>A thumbnail of one local file.</summary>
+    public Task<ThumbnailResult> LoadFileAsync(string path) => LoadLocalAsync([path]);
+
     private async Task<ThumbnailResult> LoadLocalAsync(IReadOnlyList<string> paths)
     {
         var decodable = paths.Where(p => DecodableExtensions.Contains(Path.GetExtension(p))).ToList();

@@ -25,8 +25,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         string? startupWarning = null,
         GoogleDriveViewModel? drive = null,
         ImportViewModel? import = null,
-        UploadViewModel? upload = null)
+        UploadViewModel? upload = null,
+        SortViewModel? sort = null)
     {
+        Sort = sort;
         Import = import;
         Upload = upload;
         _scanner = scanner;
@@ -65,6 +67,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public UploadViewModel? Upload { get; }
 
     public bool HasUpload => Upload is not null;
+
+    /// <summary>Sorting photos into folders (the "Sort photos" tab).</summary>
+    public SortViewModel? Sort { get; }
+
+    public bool HasSort => Sort is not null;
 
     public bool HasImport => Import is not null;
 

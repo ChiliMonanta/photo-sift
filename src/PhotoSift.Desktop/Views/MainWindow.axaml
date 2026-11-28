@@ -216,6 +216,136 @@
       </TabItem>
 
 
+      <!-- Sort photos -->
+      <TabItem Header="Sort photos" IsVisible="{Binding HasSort}">
+        <DockPanel Margin="8" DataContext="{Binding Sort}" x:DataType="vm:SortViewModel">
+          <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+                <Button Content="Change…" Command="{Binding ChangeLibraryCommand}" />
+              </StackPanel>
+              <StackPanel Spacing="2" Margin="0,0,12,0">
+                <TextBlock Classes="heading" Text="Photo folder" />
+                <TextBlock Text="{Binding LibraryFolder, TargetNullValue='No folder chosen'}" TextWrapping="Wrap" />
+                <TextBlock Classes="muted" TextWrapping="Wrap"
+                           Text="Drag photos onto a folder to move them there. Drag a selected photo to move all selected photos." />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,12,0,0">
+            <Border Background="#33FFA500" CornerRadius="4" Padding="8" IsVisible="{Binding IsConfirmingDelete}">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0" VerticalAlignment="Center">
+                  <Button Content="Cancel" Command="{Binding CancelDeleteCommand}" />
+                  <Button Content="Move to trash" Command="{Binding ConfirmDeleteCommand}" Classes="accent" />
+                </StackPanel>
+                <TextBlock Text="{Binding DeleteConfirmationText}" TextWrapping="Wrap" FontWeight="SemiBold" VerticalAlignment="Center" />
+              </DockPanel>
+            </Border>
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+            <Expander Header="Problems" HorizontalAlignment="Stretch" IsVisible="{Binding HasProblems}" IsExpanded="True">
+              <ListBox ItemsSource="{Binding Problems}" MaxHeight="160" />
+            </Expander>
+          </StackPanel>
+
+          <Grid ColumnDefinitions="300,12,*">
+            <!-- Folders -->
+            <Border Classes="card">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="heading" Text="Folders" Margin="0,0,0,8" />
+                <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+                  <TextBox Text="{Binding NewFolderName}" PlaceholderText="Folder name">
+                    <TextBox.KeyBindings>
+                      <KeyBinding Gesture="Enter" Command="{Binding CreateFolderCommand}" />
+                    </TextBox.KeyBindings>
+                  </TextBox>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Content="New folder" Command="{Binding CreateFolderCommand}"
+                            ToolTip.Tip="Creates a folder with this name in the selected folder." />
+                    <Button Content="Rename" Command="{Binding RenameFolderCommand}"
+                            ToolTip.Tip="Gives the selected folder this name." />
+                    <Button Content="Delete…" Command="{Binding DeleteFolderCommand}"
+                            ToolTip.Tip="Moves the selected folder, with everything in it, to the trash." />
+                  </StackPanel>
+                </StackPanel>
+                <TreeView x:Name="SortFolderTree" ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}"
+                          DragDrop.AllowDrop="True">
+                  <TreeView.Styles>
+                    <Style Selector="TreeViewItem" x:DataType="vm:SortFolderViewModel">
+                      <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    </Style>
+                  </TreeView.Styles>
+                  <TreeView.ItemTemplate>
+                    <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:SortFolderViewModel">
+                      <Border CornerRadius="3" Padding="4,1" Margin="-4,0"
+                              Background="{Binding IsDropTarget, Converter={x:Static svc:DropTargetBrush.Converter}}">
+                        <TextBlock Text="{Binding Label}" />
+                      </Border>
+                    </TreeDataTemplate>
+                  </TreeView.ItemTemplate>
+                </TreeView>
+              </DockPanel>
+            </Border>
+
+            <!-- Photos in the selected folder (virtualized: previews load only for shown photos) -->
+            <Border Grid.Column="2" Classes="card">
+              <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="Select all" Command="{Binding SelectAllCommand}" />
+                    <Button Content="Select none" Command="{Binding SelectNoneCommand}" />
+                  </StackPanel>
+                  <StackPanel Spacing="2">
+                    <TextBlock Classes="heading" Text="{Binding SelectedFolder.DisplayPath, FallbackValue=''}" TextWrapping="Wrap" />
+                    <TextBlock Classes="muted" Text="{Binding SelectionText}" />
+                  </StackPanel>
+                </DockPanel>
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                  <TextBlock DockPanel.Dock="Left" Text="Move selected to" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <Button DockPanel.Dock="Right" Content="Undo last move" Command="{Binding UndoCommand}" Margin="8,0,0,0" />
+                  <Button DockPanel.Dock="Right" Content="Move" Command="{Binding MoveCommand}" Classes="accent" Margin="8,0,0,0" />
+                  <ComboBox ItemsSource="{Binding AllFolders}" SelectedItem="{Binding MoveTarget}" HorizontalAlignment="Stretch"
+                            PlaceholderText="Choose a folder">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:SortFolderViewModel">
+                        <TextBlock Text="{Binding DisplayPath}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </DockPanel>
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                  <ItemsRepeater x:Name="SortPhotoGrid" ItemsSource="{Binding Photos}">
+                    <ItemsRepeater.Layout>
+                      <UniformGridLayout MinItemWidth="156" MinItemHeight="176" MinRowSpacing="8" MinColumnSpacing="8" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                      <DataTemplate x:DataType="vm:SortPhotoViewModel">
+                        <ToggleButton IsChecked="{Binding IsSelected}" Padding="4" Width="156" Height="176"
+                                      HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                                      ToolTip.Tip="{Binding Path}">
+                          <DockPanel>
+                            <TextBlock DockPanel.Dock="Bottom" Text="{Binding FileName}" TextTrimming="CharacterEllipsis"
+                                       FontSize="12" Margin="2,4,2,0" />
+                            <Panel Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+                              <Image Source="{Binding Thumbnail}" Stretch="Uniform" IsVisible="{Binding HasThumbnail}" />
+                              <TextBlock Text="{Binding ThumbnailStatus}" IsVisible="{Binding !HasThumbnail}" TextWrapping="Wrap"
+                                         TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                         Margin="6" Classes="muted" />
+                            </Panel>
+                          </DockPanel>
+                        </ToggleButton>
+                      </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater>
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+          </Grid>
+        </DockPanel>
+      </TabItem>
+
       <!-- Upload to Google Drive -->
       <TabItem Header="Upload to Google Drive" IsVisible="{Binding HasUpload}">
         <DockPanel Margin="8">

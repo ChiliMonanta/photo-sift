@@ -25,7 +25,7 @@ public enum JournalStatus
 /// can continue after it is canceled, the app closes, or the phone is disconnected. Every change
 /// is written to disk before the next step of the copy.
 /// </summary>
-public sealed class ImportJournal : IDisposable
+public sealed class ImportJournal : ISettingsStore, IDisposable
 {
     private readonly SqliteConnection _connection;
     private readonly Lock _lock = new();
