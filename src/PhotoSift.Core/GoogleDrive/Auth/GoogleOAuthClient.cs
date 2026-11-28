@@ -8,7 +8,8 @@ namespace PhotoSift.Core.GoogleDrive.Auth;
 /// </summary>
 public sealed record OAuthClientCredentials(string ClientId, string? ClientSecret);
 
-public sealed record OAuthTokens(string AccessToken, DateTimeOffset ExpiresAt, string? RefreshToken);
+/// <param name="Scope">The scopes the user granted (space-separated), when Google reports them.</param>
+public sealed record OAuthTokens(string AccessToken, DateTimeOffset ExpiresAt, string? RefreshToken, string? Scope = null);
 
 public sealed class OAuthException(string message, string? error = null) : Exception(message)
 {
@@ -21,11 +22,19 @@ public sealed class OAuthException(string message, string? error = null) : Excep
 
 /// <summary>
 /// Google sign-in for installed apps: system browser, loopback redirect, PKCE (S256) and a
-/// random <c>state</c>. Requests only the read-only Drive metadata scope.
+/// random <c>state</c>. Requests only read-only Drive access (<see cref="Scope"/>).
 /// </summary>
 public sealed class GoogleOAuthClient(HttpClient http, OAuthClientCredentials credentials, TimeProvider? time = null)
 {
-    public const string Scope = "https://www.googleapis.com/auth/drive.metadata.readonly";
+    /// <summary>
+    /// Read-only access to Drive. Scanning only needs file metadata, but previews need Drive's
+    /// thumbnails, which the metadata-only scope cannot download. PhotoSift never downloads file contents.
+    /// </summary>
+    public const string Scope = "https://www.googleapis.com/auth/drive.readonly";
+
+    /// <summary>Whether a space-separated list of granted scopes includes <see cref="Scope"/>.</summary>
+    public static bool IncludesRequiredScope(string? grantedScopes) =>
+        (grantedScopes ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(Scope);
     public const string AuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
     public const string TokenEndpoint = "https://oauth2.googleapis.com/token";
     public const string RevokeEndpoint = "https://oauth2.googleapis.com/revoke";
@@ -142,20 +151,17 @@ public sealed class GoogleOAuthClient(HttpClient http, OAuthClientCredentials cr
             throw new OAuthException("Google returned no access token.");
         }
 
-        if (requireScope)
+        var scope = root.TryGetProperty("scope", out var s) ? s.GetString() : null;
+        if (requireScope && !IncludesRequiredScope(scope))
         {
-            var scopes = root.TryGetProperty("scope", out var s) ? (s.GetString() ?? string.Empty).Split(' ') : [];
-            if (!scopes.Contains(Scope))
-            {
-                throw new OAuthException(
-                    "PhotoSift needs permission to see information about your Google Drive files. Connect again and allow it.",
-                    "insufficient_scope");
-            }
+            throw new OAuthException(
+                "PhotoSift needs permission to see your Google Drive files. Connect again and allow it.",
+                "insufficient_scope");
         }
 
         var expiresIn = root.TryGetProperty("expires_in", out var e) && e.TryGetInt32(out var seconds) ? seconds : 3600;
         var refreshToken = root.TryGetProperty("refresh_token", out var r) ? r.GetString() : null;
-        return new OAuthTokens(accessToken, _time.GetUtcNow().AddSeconds(expiresIn), refreshToken);
+        return new OAuthTokens(accessToken, _time.GetUtcNow().AddSeconds(expiresIn), refreshToken, scope);
     }
 
     private static (string? Error, string? Description) ParseError(string body)

@@ -1,7 +1,8 @@
 namespace PhotoSift.Core.GoogleDrive.Auth;
 
-/// <summary>The saved sign-in: the refresh token and the account it belongs to.</summary>
-public sealed record StoredDriveAccount(string RefreshToken, string PermissionId, string Email);
+/// <summary>The saved sign-in: the refresh token, the account it belongs to, and the scopes the user granted.</summary>
+/// <param name="Scope">Space-separated granted scopes; null for sign-ins saved before PhotoSift recorded them.</param>
+public sealed record StoredDriveAccount(string RefreshToken, string PermissionId, string Email, string? Scope = null);
 
 /// <summary>Keeps the saved sign-in in the operating system's secure storage, never in a plain file.</summary>
 public interface ITokenStore
@@ -34,6 +35,9 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
     private StoredDriveAccount? _stored;
     private OAuthTokens? _current;
 
+    // A saved sign-in for permissions PhotoSift no longer asks for; replaced (and revoked) on the next connect.
+    private StoredDriveAccount? _outdated;
+
     /// <param name="oauth">Null when no OAuth client is configured for this build.</param>
     /// <param name="apiFactory">Creates the Drive API client that gets its tokens from this connection.</param>
     public DriveConnection(
@@ -57,6 +61,12 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
 
     public IDriveApi? Api => _stored is null ? null : _api;
 
+    /// <summary>
+    /// True when the saved sign-in was made with permissions PhotoSift no longer uses (e.g. before
+    /// previews needed the read-only Drive scope). The user must connect again.
+    /// </summary>
+    public bool NeedsReconnect => _outdated is not null;
+
     /// <summary>Loads the saved sign-in, if any. Does not contact Google.</summary>
     public void Restore()
     {
@@ -65,8 +75,16 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
             return;
         }
 
-        _stored = _store.Load();
+        var stored = _store.Load();
         _current = null;
+        if (stored is not null && !GoogleOAuthClient.IncludesRequiredScope(stored.Scope))
+        {
+            _outdated = stored;
+            _stored = null;
+            return;
+        }
+
+        _stored = stored;
     }
 
     /// <summary>
@@ -89,10 +107,9 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
             _current = tokens;
             var account = await _api.GetAccountAsync(cancellationToken).ConfigureAwait(false);
 
-            var stored = new StoredDriveAccount(tokens.RefreshToken!, account.PermissionId, account.Email);
+            var stored = new StoredDriveAccount(tokens.RefreshToken!, account.PermissionId, account.Email, tokens.Scope);
             _store.Save(stored);
             _stored = stored;
-            return account;
         }
         catch
         {
@@ -100,6 +117,22 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
             (_stored, _current) = previous;
             throw;
         }
+
+        // The new sign-in replaced the outdated one; remove PhotoSift's old access at Google too.
+        if (_outdated is { } outdated)
+        {
+            _outdated = null;
+            try
+            {
+                await _oauth.RevokeAsync(outdated.RefreshToken, cancellationToken).ConfigureAwait(false);
+            }
+            catch (Exception ex) when (ex is OAuthException or HttpRequestException)
+            {
+                // Best effort: the new sign-in works either way, and the old one expires when unused.
+            }
+        }
+
+        return Account!;
     }
 
     /// <summary>
@@ -108,8 +141,9 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
     /// </summary>
     public async Task DisconnectAsync(CancellationToken cancellationToken)
     {
-        var stored = _stored;
+        var stored = _stored ?? _outdated;
         _stored = null;
+        _outdated = null;
         _current = null;
         _store.Delete();
 
