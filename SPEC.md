@@ -149,7 +149,30 @@ Anyone who downloads PhotoSift can connect **their own Google Drive** as an alte
 
 ---
 
-## 9. Future Features (Post-MVP)
+## 9. Import from Phone (Post-MVP)
+
+Copies photos and videos from a phone to the computer, in its own **"Import from phone"** tab next to **"Find duplicates"**.
+
+* **Sources:** Android phones (unlocked, USB mode "File transfer") and iPhones (unlocked, "Trust this computer") through Windows Portable Devices; on other platforms phones are not available yet. Any folder can also be imported from (e.g. a memory card, or a phone the OS mounts as a folder). From phones, the `DCIM`, `Pictures`, and `Movies` folders of each storage are imported.
+* **Files:** the image formats PhotoSift scans, plus common video formats (MP4, MOV, 3GP, MKV, and others). Other files are ignored.
+* **Copy only:** nothing on the phone is ever changed or deleted.
+* **Destination:** a folder the user chooses (remembered; default: the user's Pictures folder). The phone's folder structure is kept below a folder named after the phone, e.g. `Pictures\Pixel 8\Internal shared storage\DCIM\Camera\IMG_1.jpg`. Copies get the source file's modification date. Names are made valid for the file system, and paths from the phone can never point outside the destination.
+* **Check before copying:** the app lists the files and shows how many are new (and their size) and how many were imported before. It refuses to start if the destination drive does not have room for the new files plus a margin, or if the destination is inside the folder being imported from.
+* **Smart copying:**
+  * Files imported before (same path on the source and same size) are skipped without reading them again, also when their copies were moved or deleted since, so organizing photos does not bring them back.
+  * A different file with the same name at the destination is kept, and the new copy gets a numbered name (`IMG_1 (2).jpg`). An identical file already there (same MD5) is not copied twice.
+  * Imported files are added to the hash cache, so a duplicate scan of them does not hash them again.
+* **Safe and resumable:**
+  * An import journal (SQLite, in the user's local app data) records each file before its copy starts and when it is done.
+  * Each file is written to a `<name>.photosift-partial` file first, flushed to disk, and checked: the size must match the source, and the data on disk must have the same MD5 as the data read. Only then is it renamed to its real name. A broken or incomplete file therefore never gets a real name.
+  * If an import is canceled, the app closes or crashes, the computer loses power, or the phone is disconnected, the next check finds the file whose copy was cut off, tells the user, removes its partial file, and copies it again. Clicking **Start copy** again continues with the files that are left.
+  * A file that fails (e.g. it arrives shorter than reported) is discarded, reported with the reason, and tried again next time. After three failures in a row, or when the destination drive is full, the import stops and says why.
+* **Progress:** files left out of the total, bytes copied, current file, speed, and estimated time left, with a Cancel button. Afterwards: how many files were copied, already on the computer, and failed, with the reason for each failure.
+* **iPhone:** with "Transfer to Mac or PC: Automatic", iOS converts photos while copying, so their size differs from what the phone reports and they fail the check. The app tells users to choose "Keep Originals".
+
+---
+
+## 10. Future Features (Post-MVP)
 * Scheduled background scanning.
 * EXIF handling (the ability to copy metadata from a duplicate before deleting it).
 * Support for additional cloud services (OneDrive, Dropbox).
@@ -157,7 +180,7 @@ Anyone who downloads PhotoSift can connect **their own Google Drive** as an alte
 
 ---
 
-## 10. MVP Acceptance Criteria
+## 11. MVP Acceptance Criteria
 * Only supported image files in the selected local folders and subfolders are scanned; non-image files are excluded.
 * Files with identical contents are grouped together regardless of filename or folder. Groups contain all copies, including groups with three or more files; modified or re-encoded images are not grouped as exact duplicates.
 * A master-folder selection keeps copies in any of the selected master folders and marks matching copies outside all of them for deletion. If no copy exists in a master folder, no file in that group is selected automatically.

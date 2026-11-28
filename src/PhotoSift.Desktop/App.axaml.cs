@@ -7,6 +7,7 @@ using PhotoSift.Core.Deletion;
 using PhotoSift.Core.GoogleDrive;
 using PhotoSift.Core.GoogleDrive.Auth;
 using PhotoSift.Core.Hashing;
+using PhotoSift.Core.Import;
 using PhotoSift.Core.Scanning;
 using PhotoSift.Core.Sources;
 using PhotoSift.Desktop.Platform;
@@ -40,17 +41,23 @@ public partial class App : Application
                 new LocalFileSource(new Md5FileHasher(), cache, TrashServiceFactory.Create()),
                 new GoogleDriveFileSource(drive));
 
+            var folderPicker = new FolderPicker(window);
+            var (import, importWarning) = OpenImport(cache, folderPicker);
+
             window.DataContext = new MainWindowViewModel(
                 new DuplicateScanner(sources),
                 new SafeDeleter(sources),
-                new FolderPicker(window),
+                folderPicker,
                 new ThumbnailLoader(sources),
-                cacheWarning,
-                driveViewModel);
+                cacheWarning ?? importWarning,
+                driveViewModel,
+                import);
 
             desktop.MainWindow = window;
             desktop.Exit += (_, _) =>
             {
+                import?.Dispose();
+                import?.Journal.Dispose();
                 (cache as IDisposable)?.Dispose();
                 http.Dispose();
             };
@@ -65,6 +72,19 @@ public partial class App : Application
         if (!await window.Launcher.LaunchUriAsync(uri))
         {
             throw new InvalidOperationException("The web browser could not be opened.");
+        }
+    }
+
+    private static (ImportViewModel? Import, string? Warning) OpenImport(IHashCache cache, IFolderPicker folderPicker)
+    {
+        try
+        {
+            var journal = new ImportJournal(ImportJournal.DefaultPath);
+            return (new ImportViewModel(new PhotoImporter(journal, cache), journal, PhoneProviderFactory.Create(), folderPicker), null);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"Phone import is unavailable: the import journal could not be opened. {ex.Message}");
         }
     }
 
