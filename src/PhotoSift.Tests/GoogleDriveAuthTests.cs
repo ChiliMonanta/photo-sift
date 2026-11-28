@@ -8,7 +8,7 @@ namespace PhotoSift.Tests;
 public sealed class GoogleDriveAuthTests
 {
     private const string TokenResponse =
-        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive.metadata.readonly","token_type":"Bearer"}""";
+        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive.readonly","token_type":"Bearer"}""";
 
     private static readonly OAuthClientCredentials Credentials = new("client-id.apps.googleusercontent.com", "client-secret");
 
@@ -162,14 +162,50 @@ public sealed class GoogleDriveAuthTests
 
         Assert.Equal(setup.Drive.Account, account);
         Assert.Equal(account, connection.Account);
-        Assert.Equal(new StoredDriveAccount("refresh-1", "12345", "user@example.com"), setup.Store.Saved);
+        Assert.Equal(
+            new StoredDriveAccount("refresh-1", "12345", "user@example.com", GoogleOAuthClient.Scope),
+            setup.Store.Saved);
+    }
+
+    [Fact]
+    public async Task A_sign_in_with_the_old_metadata_scope_must_be_replaced_and_is_then_revoked()
+    {
+        var setup = new Connection();
+        setup.Store.Saved = new StoredDriveAccount(
+            "old-refresh", "12345", "user@example.com", "https://www.googleapis.com/auth/drive.metadata.readonly");
+        var connection = setup.Create();
+
+        connection.Restore();
+
+        Assert.True(connection.NeedsReconnect);
+        Assert.Null(connection.Account);
+        Assert.Null(connection.Api);
+
+        await connection.ConnectAsync(new FakeBrowser().OpenAsync, Timeout());
+
+        Assert.False(connection.NeedsReconnect);
+        Assert.Equal("refresh-1", setup.Store.Saved!.RefreshToken);
+        Assert.Contains("revoke:old-refresh", setup.TokenRequests);
+    }
+
+    [Fact]
+    public void Sign_ins_saved_before_scopes_were_recorded_must_be_replaced()
+    {
+        var setup = new Connection();
+        setup.Store.Saved = new StoredDriveAccount("old-refresh", "12345", "user@example.com");
+        var connection = setup.Create();
+
+        connection.Restore();
+
+        Assert.True(connection.NeedsReconnect);
+        Assert.Null(connection.Account);
     }
 
     [Fact]
     public async Task Access_tokens_are_reused_until_they_expire_then_refreshed()
     {
         var setup = new Connection();
-        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com");
+        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com", GoogleOAuthClient.Scope);
         var connection = setup.Create();
         connection.Restore();
 
@@ -187,7 +223,7 @@ public sealed class GoogleDriveAuthTests
     public async Task An_expired_sign_in_asks_the_user_to_connect_again()
     {
         var setup = new Connection { RefreshStatus = HttpStatusCode.BadRequest };
-        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com");
+        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com", GoogleOAuthClient.Scope);
         var connection = setup.Create();
         connection.Restore();
 
@@ -199,7 +235,7 @@ public sealed class GoogleDriveAuthTests
     public async Task Disconnecting_revokes_access_and_deletes_the_saved_sign_in()
     {
         var setup = new Connection();
-        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com");
+        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com", GoogleOAuthClient.Scope);
         var connection = setup.Create();
         connection.Restore();
 
@@ -215,7 +251,7 @@ public sealed class GoogleDriveAuthTests
     public async Task The_saved_sign_in_is_deleted_even_when_revoking_fails()
     {
         var setup = new Connection { RevokeStatus = HttpStatusCode.ServiceUnavailable };
-        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com");
+        setup.Store.Saved = new StoredDriveAccount("refresh-1", "12345", "user@example.com", GoogleOAuthClient.Scope);
         var connection = setup.Create();
         connection.Restore();
 
@@ -247,7 +283,7 @@ public sealed class GoogleDriveAuthTests
         using var temp = new TempFolder();
         var path = temp.PathOf("sign-in.bin");
         var store = new DpapiTokenStore(path);
-        var account = new StoredDriveAccount("1//refresh-token-value", "12345", "user@example.com");
+        var account = new StoredDriveAccount("1//refresh-token-value", "12345", "user@example.com", GoogleOAuthClient.Scope);
 
         store.Save(account);
 

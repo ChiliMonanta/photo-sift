@@ -8,7 +8,7 @@ namespace PhotoSift.Tests;
 public sealed class GoogleDriveConnectViewModelTests
 {
     private const string TokenResponse =
-        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive.metadata.readonly"}""";
+        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive.readonly"}""";
 
     [Fact]
     public void Connecting_updates_the_view_on_the_UI_thread_without_a_restart()

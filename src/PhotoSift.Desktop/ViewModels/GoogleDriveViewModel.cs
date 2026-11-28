@@ -150,7 +150,9 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
         StatusText = _connection.UnavailableReason
                      ?? (_connection.Account is { } account
                          ? $"Connected to Google Drive as {account.Email} (read-only)."
-                         : "Not connected. Connect to scan folders in your My Drive (read-only).");
+                         : _connection.NeedsReconnect
+                             ? "PhotoSift now also shows previews from Google Drive, which needs a new permission. Connect Google Drive again."
+                             : "Not connected. Connect to scan folders in your My Drive (read-only).");
         OnPropertyChanged(nameof(IsAvailable));
     }
 }
