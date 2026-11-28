@@ -51,6 +51,13 @@ public sealed class PhotoImporter(
         var interrupted = RecoverInterrupted(source.Id);
         var entries = journal.GetEntries(source.Id);
 
+        // Phones may present the same file under another folder later (an iPhone regroups its month
+        // folders), so a file with the same name and size as one imported from this source counts too.
+        var importedNames = entries.Values
+            .Where(e => e.Status == JournalStatus.Done)
+            .Select(e => (Name: e.RelativePath[(e.RelativePath.LastIndexOf('/') + 1)..], e.Size))
+            .ToHashSet();
+
         var toCopy = new List<ImportItem>();
         var seen = new HashSet<string>(StringComparer.Ordinal);
         var alreadyImported = 0;
@@ -61,9 +68,9 @@ public sealed class PhotoImporter(
                 continue;
             }
 
-            // Imported before (same path and size): skip, even if the copy was moved or deleted since,
-            // so organizing or deleting imported photos does not bring them back.
-            if (entries.TryGetValue(item.RelativePath, out var entry) && entry.Status == JournalStatus.Done && entry.Size == item.Size)
+            // Imported before: skip, even if the copy was moved or deleted since, so organizing or
+            // deleting imported photos does not bring them back.
+            if (importedNames.Contains((item.FileName, item.Size)))
             {
                 alreadyImported++;
                 continue;

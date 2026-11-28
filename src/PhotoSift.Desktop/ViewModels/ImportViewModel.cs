@@ -259,14 +259,15 @@ public sealed partial class ImportViewModel : ObservableObject, IDisposable
                 : "Click Start copy to copy the new files.");
             return plan;
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             StatusText = "Canceled.";
             return null;
         }
         catch (Exception ex)
         {
-            StatusText = $"The source could not be read: {ex.Message}";
+            // Includes timeouts and cancellations the user did not ask for.
+            StatusText = $"The source could not be read: {ex.GetType().Name}: {ex.Message}";
             return null;
         }
         finally

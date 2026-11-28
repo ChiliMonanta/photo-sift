@@ -77,6 +77,20 @@ public sealed class PhotoImportTests : IDisposable
     }
 
     [Fact]
+    public async Task Files_the_phone_moves_to_another_folder_are_not_imported_again()
+    {
+        var photo = _phone.Add("Internal Storage/202505_a/IMG_0001.HEIC", seed: 1);
+        await ImportAsync();
+        _phone.Move(photo, "Internal Storage/202505_b/IMG_0001.HEIC"); // iOS regrouped its month folders
+        _phone.Add("Internal Storage/202505_b/IMG_0001.JPG", seed: 2);   // same number, different file
+
+        var (plan, _) = await ImportAsync();
+
+        Assert.Equal(1, plan.AlreadyImported);
+        Assert.Equal(["Internal Storage/202505_b/IMG_0001.JPG"], plan.ToCopy.Select(i => i.RelativePath));
+    }
+
+    [Fact]
     public async Task Imported_photos_that_were_moved_away_are_not_imported_again()
     {
         var photo = _phone.Add("DCIM/IMG_1.jpg", seed: 1);
@@ -315,6 +329,12 @@ public sealed class PhotoImportTests : IDisposable
         }
 
         public byte[] Bytes(string path) => _files[path].Bytes;
+
+        public void Move(string from, string to)
+        {
+            _files[to] = _files[from];
+            _files.Remove(from);
+        }
 
         public void Truncate(string path, int bytes) => _truncateTo[path] = bytes;
 

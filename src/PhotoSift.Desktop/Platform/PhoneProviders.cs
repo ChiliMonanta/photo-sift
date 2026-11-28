@@ -94,7 +94,8 @@ public sealed class WindowsPhoneProvider : IPhoneProvider
 
 /// <summary>
 /// The camera roll of one connected phone: the DCIM, Pictures and Movies folders of each storage
-/// (e.g. "Internal shared storage", "SD card", or an iPhone's "Internal Storage").
+/// (e.g. "Internal shared storage", "SD card"), or the whole storage when it has none of them,
+/// like an iPhone's "Internal Storage".
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class WindowsPhoneSource(MediaDevice device, string name) : IImportSource
@@ -144,8 +145,13 @@ internal sealed class WindowsPhoneSource(MediaDevice device, string name) : IImp
         var root = device.GetRootDirectory();
         foreach (var storage in root.EnumerateDirectories())
         {
-            foreach (var folder in storage.EnumerateDirectories()
-                         .Where(d => MediaFolders.Contains(d.Name, StringComparer.OrdinalIgnoreCase)))
+            // Android: DCIM, Pictures and Movies. An iPhone has no DCIM over USB; its "Internal Storage"
+            // holds only photos and videos, in month folders such as "202505_a", so all of it is imported.
+            var topFolders = storage.EnumerateDirectories().ToList();
+            var mediaFolders = topFolders.Where(d => MediaFolders.Contains(d.Name, StringComparer.OrdinalIgnoreCase)).ToList();
+            IEnumerable<MediaDirectoryInfo> foldersToImport = mediaFolders.Count > 0 ? mediaFolders : [storage];
+
+            foreach (var folder in foldersToImport)
             {
                 var pending = new Stack<MediaDirectoryInfo>([folder]);
                 while (pending.TryPop(out var directory))
