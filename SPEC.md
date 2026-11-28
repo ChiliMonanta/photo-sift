@@ -207,6 +207,8 @@ Sorting photos into folders, in the **"Sort photos"** tab (after **Find duplicat
 * **Photo folder:** the user chooses a local folder (remembered). The tab shows its folders as a tree, with the number of photos and videos directly in each folder. Hidden and system folders and symbolic links are skipped. **Refresh** reads the folders again.
 * **Photos:** selecting a folder shows its photos and videos (the same formats as phone import) as a grid of previews. Previews load only for the photos shown, from local files; formats the app cannot decode, and videos, show a placeholder with the file name. Photos are selected by clicking them; **Select all** and **Select none** help.
 * **New folder:** a subfolder of the selected folder, with a name that is valid on every OS (no `< > : " / \ | ? *`, no leading or trailing space or trailing period, no reserved Windows names). An existing folder is never replaced. The new folder is chosen as the move target.
+* **Rename folder:** gives the selected folder the name in the name box (same name rules; changing only upper/lower case works). The photo folder itself cannot be renamed. A name already used by another folder or file is refused.
+* **Delete folder:** moves the selected folder, with everything in it, to the OS trash (never a permanent delete), after the user confirms. The question says what the folder contains (photos and videos, other files including hidden ones, subfolders). If the contents change before the user confirms, the app asks again with the new contents. A folder that could not be moved to the trash is reported and left in place. The photo folder itself cannot be deleted.
 * **Move:** the selected photos are moved to the folder chosen under **Move selected to**.
   * Files are only renamed (moved within the same drive), never copied and deleted, so a move cannot lose data. Moves to another drive are refused.
   * Nothing is overwritten: a file with a taken name gets a numbered name (`IMG_1 (2).jpg`).
@@ -214,7 +216,7 @@ Sorting photos into folders, in the **"Sort photos"** tab (after **Find duplicat
   * Cached hashes follow the moved files, so the next duplicate scan does not hash them again.
 * **Drag and drop:** photos can be dragged from the grid onto a folder in the tree; the folder is highlighted while it can take them. Dragging a selected photo moves all selected photos; dragging an unselected photo selects and moves only it. Dropping on the folder the photos are in does nothing. A drop moves files exactly like **Move**, and can be undone. Drags stay inside PhotoSift (photos are not offered to other apps, and files dropped from other apps are not accepted).
 * **Undo last move:** moves the photos of the last move back where they were, unless another file has taken that place (then it is reported and nothing is replaced).
-* **Not yet:** renaming and deleting folders, sorting Google Drive folders, and moving sidecar files (e.g. `.xmp`, `.aae`) with their photos.
+* **Not yet:** sorting Google Drive folders, and moving sidecar files (e.g. `.xmp`, `.aae`) with their photos.
 
 ---
 

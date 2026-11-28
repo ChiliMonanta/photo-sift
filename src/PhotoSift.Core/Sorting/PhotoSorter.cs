@@ -1,4 +1,6 @@
 using PhotoSift.Core.Caching;
+using PhotoSift.Core.Deletion;
+using PhotoSift.Core.Import;
 
 namespace PhotoSift.Core.Sorting;
 
@@ -10,6 +12,14 @@ public sealed record MoveProblem(string Path, string Reason);
 
 public sealed record MoveReport(IReadOnlyList<MovedFile> Moved, IReadOnlyList<MoveProblem> Problems);
 
+/// <summary>What a folder contains, including its subfolders.</summary>
+/// <param name="Photos">Photos and videos.</param>
+/// <param name="OtherFiles">All other files, including hidden ones.</param>
+public sealed record FolderContents(int Photos, int OtherFiles, int Subfolders)
+{
+    public bool IsEmpty => Photos == 0 && OtherFiles == 0;
+}
+
 /// <summary>
 /// Creates folders and moves photos between them, for sorting a photo library by hand.
 /// </summary>
@@ -20,9 +30,10 @@ public sealed record MoveReport(IReadOnlyList<MovedFile> Moved, IReadOnlyList<Mo
 /// <item>Nothing is overwritten: a file with a taken name gets a new name ("IMG_1 (2).jpg").</item>
 /// <item>A move can be undone; each file goes back to where it was, if that place is still free.</item>
 /// <item>Cached hashes follow the files, so the next duplicate scan does not hash them again.</item>
+/// <item>Folders are deleted by moving them to the OS trash, never permanently.</item>
 /// </list>
 /// </remarks>
-public sealed class PhotoSorter(IHashCache? hashCache = null)
+public sealed class PhotoSorter(IHashCache? hashCache = null, ITrashService? trash = null)
 {
     private static readonly HashSet<string> ReservedNames = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -76,6 +87,90 @@ public sealed class PhotoSorter(IHashCache? hashCache = null)
 
         Directory.CreateDirectory(path);
         return path;
+    }
+
+    /// <summary>
+    /// Renames a folder in place. Throws <see cref="ArgumentException"/> for an invalid name and
+    /// <see cref="IOException"/> if the name is taken. Changing only upper and lower case is allowed.
+    /// </summary>
+    public string RenameFolder(string folder, string newName)
+    {
+        if (ValidateFolderName(newName) is { } problem)
+        {
+            throw new ArgumentException(problem, nameof(newName));
+        }
+
+        folder = Path.TrimEndingDirectorySeparator(Path.GetFullPath(folder));
+        var parent = Path.GetDirectoryName(folder) ?? throw new IOException("A drive cannot be renamed.");
+        var destination = Path.Combine(parent, newName);
+        if (string.Equals(folder, destination, StringComparison.Ordinal))
+        {
+            return folder;
+        }
+
+        var caseOnly = string.Equals(folder, destination, StringComparison.OrdinalIgnoreCase);
+        if (!caseOnly && (Directory.Exists(destination) || File.Exists(destination)))
+        {
+            throw new IOException($"\"{newName}\" already exists in this folder.");
+        }
+
+        if (caseOnly)
+        {
+            // Some file systems ignore a move that only changes case; go through a temporary name.
+            var temporary = Path.Combine(parent, $"{newName}.photosift-rename-{Guid.NewGuid():N}");
+            Directory.Move(folder, temporary);
+            Directory.Move(temporary, destination);
+        }
+        else
+        {
+            Directory.Move(folder, destination);
+        }
+
+        return destination;
+    }
+
+    /// <summary>Counts what a folder contains, so the user knows what a delete moves to the trash.</summary>
+    public static FolderContents CountContents(string folder)
+    {
+        int photos = 0, other = 0, subfolders = 0;
+        var options = new EnumerationOptions { RecurseSubdirectories = true, AttributesToSkip = 0, IgnoreInaccessible = false };
+        foreach (var entry in new DirectoryInfo(folder).EnumerateFileSystemInfos("*", options))
+        {
+            if (entry is DirectoryInfo)
+            {
+                subfolders++;
+            }
+            else if (MediaFormats.IsSupported(entry.Name))
+            {
+                photos++;
+            }
+            else
+            {
+                other++;
+            }
+        }
+
+        return new FolderContents(photos, other, subfolders);
+    }
+
+    /// <summary>Moves a folder, with everything in it, to the OS trash, where it can be restored.</summary>
+    public async Task MoveFolderToTrashAsync(string folder, CancellationToken cancellationToken = default)
+    {
+        if (trash is null)
+        {
+            throw new InvalidOperationException("Moving to the trash is not available.");
+        }
+
+        if (!Directory.Exists(folder))
+        {
+            throw new DirectoryNotFoundException("The folder no longer exists.");
+        }
+
+        await trash.MoveToTrashAsync(folder, cancellationToken).ConfigureAwait(false);
+        if (Directory.Exists(folder))
+        {
+            throw new IOException("The folder is still there; it could not be moved to the trash.");
+        }
     }
 
     /// <summary>Moves files into <paramref name="targetFolder"/>. Files that cannot be moved are reported, the rest are moved.</summary>

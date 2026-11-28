@@ -102,6 +102,58 @@ public sealed class PhotoSorterTests : IDisposable
     }
 
     [Fact]
+    public void Folders_can_be_renamed_but_not_onto_another_folder()
+    {
+        _temp.WriteImage("Trips/Rome/a.jpg", seed: 1);
+        Directory.CreateDirectory(_temp.PathOf("Trips/Paris"));
+
+        var renamed = _sorter.RenameFolder(_temp.PathOf("Trips/Rome"), "Rome 2025");
+
+        Assert.Equal(_temp.PathOf("Trips/Rome 2025"), renamed);
+        Assert.True(File.Exists(_temp.PathOf("Trips/Rome 2025/a.jpg")));
+        Assert.Throws<IOException>(() => _sorter.RenameFolder(renamed, "Paris"));
+        Assert.Throws<ArgumentException>(() => _sorter.RenameFolder(renamed, "a/b"));
+        Assert.True(Directory.Exists(renamed));
+    }
+
+    [Fact]
+    public void Changing_only_the_case_of_a_folder_name_works()
+    {
+        _temp.WriteImage("rome/a.jpg", seed: 1);
+
+        var renamed = _sorter.RenameFolder(_temp.PathOf("rome"), "Rome");
+
+        Assert.Equal("Rome", new DirectoryInfo(_temp.Root).GetDirectories().Single().Name);
+        Assert.True(File.Exists(Path.Combine(renamed, "a.jpg")));
+    }
+
+    [Fact]
+    public async Task Folders_are_deleted_by_moving_them_to_the_trash()
+    {
+        _temp.WriteImage("Old/a.jpg", seed: 1);
+        _temp.WriteBytes("Old/sub/Thumbs.db", [1]);
+        var trash = new FakeTrashService();
+
+        Assert.Equal(new FolderContents(1, 1, 1), PhotoSorter.CountContents(_temp.PathOf("Old")));
+        await new PhotoSorter(trash: trash).MoveFolderToTrashAsync(_temp.PathOf("Old"));
+
+        Assert.Equal([_temp.PathOf("Old")], trash.Trashed);
+        Assert.False(Directory.Exists(_temp.PathOf("Old")));
+    }
+
+    [Fact]
+    public async Task A_folder_that_could_not_be_trashed_is_reported()
+    {
+        Directory.CreateDirectory(_temp.PathOf("Old"));
+        var trash = new FakeTrashService();
+        trash.FailFor.Add(_temp.PathOf("Old"));
+
+        await Assert.ThrowsAsync<IOException>(() => new PhotoSorter(trash: trash).MoveFolderToTrashAsync(_temp.PathOf("Old")));
+        await Assert.ThrowsAsync<InvalidOperationException>(() => _sorter.MoveFolderToTrashAsync(_temp.PathOf("Old")));
+        Assert.True(Directory.Exists(_temp.PathOf("Old")));
+    }
+
+    [Fact]
     public void Cached_hashes_follow_moved_files()
     {
         var cache = new MemoryHashCache();
@@ -284,6 +336,76 @@ public sealed class SortViewModelTests : IDisposable
         Assert.False(inbox.IsDropTarget);
         Assert.Equal(3, vm.Photos.Count);
         Assert.True(File.Exists(_temp.PathOf("Photos/Inbox/IMG_1.jpg")));
+    }
+
+    [Fact]
+    public async Task The_selected_folder_can_be_renamed_but_not_the_photo_folder()
+    {
+        var vm = await OpenAsync();
+        vm.SelectedFolder = vm.Folders[0];
+        vm.NewFolderName = "Other";
+        Assert.False(vm.RenameFolderCommand.CanExecute(null));
+
+        vm.SelectedFolder = Folder(vm, "Photos/Trips");
+        await vm.RenameFolderCommand.ExecuteAsync(null);
+
+        Assert.True(Directory.Exists(_temp.PathOf("Photos/Other")));
+        Assert.Equal("Photos/Other", vm.SelectedFolder?.DisplayPath);
+        Assert.Equal("Renamed \"Trips\" to \"Other\".", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task Deleting_a_folder_asks_first_and_moves_it_to_the_trash()
+    {
+        var trash = new FakeTrashService();
+        var vm = new SortViewModel(new PhotoSorter(trash: trash), _picker, new ThumbnailLoader(), _settings);
+        _picker.Next = [_temp.PathOf("Photos")];
+        await vm.ChangeLibraryCommand.ExecuteAsync(null);
+        await SelectFolderAsync(vm, Folder(vm, "Photos/Inbox"));
+
+        await vm.DeleteFolderCommand.ExecuteAsync(null);
+        Assert.True(vm.IsConfirmingDelete);
+        Assert.Equal(
+            "Move \"Photos/Inbox\" to the trash, with 3 photo(s) and video(s), 1 other file(s)? You can restore it from the trash.",
+            vm.DeleteConfirmationText);
+        vm.CancelDeleteCommand.Execute(null);
+        Assert.Empty(trash.Trashed);
+
+        await vm.DeleteFolderCommand.ExecuteAsync(null);
+        await vm.ConfirmDeleteCommand.ExecuteAsync(null);
+
+        Assert.Equal([_temp.PathOf("Photos/Inbox")], trash.Trashed);
+        Assert.Equal(["Photos", "Photos/Trips"], vm.AllFolders.Select(f => f.DisplayPath));
+        Assert.Equal("Photos", vm.SelectedFolder?.DisplayPath);
+        Assert.Equal("Moved \"Photos/Inbox\" to the trash.", vm.StatusText);
+    }
+
+    [Fact]
+    public async Task A_folder_that_changed_after_the_question_is_asked_about_again()
+    {
+        var trash = new FakeTrashService();
+        var vm = new SortViewModel(new PhotoSorter(trash: trash), _picker, new ThumbnailLoader(), _settings);
+        _picker.Next = [_temp.PathOf("Photos")];
+        await vm.ChangeLibraryCommand.ExecuteAsync(null);
+        vm.SelectedFolder = Folder(vm, "Photos/Trips");
+
+        await vm.DeleteFolderCommand.ExecuteAsync(null);
+        Assert.Equal("Move the empty folder \"Photos/Trips\" to the trash?", vm.DeleteConfirmationText);
+        _temp.WriteImage("Photos/Trips/new.jpg", seed: 5);
+        await vm.ConfirmDeleteCommand.ExecuteAsync(null);
+
+        Assert.Empty(trash.Trashed);
+        Assert.True(vm.IsConfirmingDelete);
+        Assert.StartsWith("The folder changed. Move \"Photos/Trips\" to the trash, with 1 photo(s)", vm.DeleteConfirmationText);
+    }
+
+    [Fact]
+    public async Task The_photo_folder_itself_cannot_be_deleted()
+    {
+        var vm = await OpenAsync();
+        vm.SelectedFolder = vm.Folders[0];
+
+        Assert.False(vm.DeleteFolderCommand.CanExecute(null));
     }
 
     [Fact]

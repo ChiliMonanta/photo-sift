@@ -22,6 +22,7 @@ public sealed partial class SortViewModel : ObservableObject
     private readonly ThumbnailLoader _thumbnails;
     private readonly ISettingsStore? _settings;
     private MoveReport? _lastMove;
+    private FolderContents? _contentsToDelete;
     private int _photoLoad;
 
     public SortViewModel(PhotoSorter sorter, IFolderPicker folderPicker, ThumbnailLoader thumbnails, ISettingsStore? settings = null)
@@ -50,7 +51,8 @@ public sealed partial class SortViewModel : ObservableObject
     public partial string? LibraryFolder { get; private set; }
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(CreateFolderCommand), nameof(MoveCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CreateFolderCommand), nameof(MoveCommand), nameof(RenameFolderCommand),
+        nameof(DeleteFolderCommand))]
     public partial SortFolderViewModel? SelectedFolder { get; set; }
 
     [ObservableProperty]
@@ -58,12 +60,23 @@ public sealed partial class SortViewModel : ObservableObject
     public partial SortFolderViewModel? MoveTarget { get; set; }
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(CreateFolderCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CreateFolderCommand), nameof(RenameFolderCommand))]
     public partial string NewFolderName { get; set; } = string.Empty;
+
+    /// <summary>The folder waiting for the user to confirm moving it to the trash, or null.</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsConfirmingDelete))]
+    public partial SortFolderViewModel? FolderToDelete { get; private set; }
+
+    public bool IsConfirmingDelete => FolderToDelete is not null;
+
+    [ObservableProperty]
+    public partial string DeleteConfirmationText { get; private set; } = string.Empty;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ChangeLibraryCommand), nameof(RefreshCommand), nameof(CreateFolderCommand),
-        nameof(MoveCommand), nameof(UndoCommand), nameof(SelectAllCommand), nameof(SelectNoneCommand))]
+        nameof(MoveCommand), nameof(UndoCommand), nameof(SelectAllCommand), nameof(SelectNoneCommand),
+        nameof(RenameFolderCommand), nameof(DeleteFolderCommand), nameof(ConfirmDeleteCommand))]
     public partial bool IsBusy { get; private set; }
 
     [ObservableProperty]
@@ -131,7 +144,123 @@ public sealed partial class SortViewModel : ObservableObject
 
     private bool CanCreateFolder() => !IsBusy && SelectedFolder is not null && !string.IsNullOrWhiteSpace(NewFolderName);
 
-    partial void OnSelectedFolderChanged(SortFolderViewModel? value) => _ = LoadPhotosAsync(value);
+    partial void OnSelectedFolderChanged(SortFolderViewModel? value)
+    {
+        FolderToDelete = null;
+        _ = LoadPhotosAsync(value);
+    }
+
+    /// <summary>Renames the selected folder to the name in the name box. The photo folder itself cannot be renamed.</summary>
+    [RelayCommand(CanExecute = nameof(CanRenameFolder))]
+    private async Task RenameFolderAsync()
+    {
+        var folder = SelectedFolder!;
+        var name = NewFolderName.Trim();
+        if (PhotoSorter.ValidateFolderName(name) is { } problem)
+        {
+            StatusText = problem;
+            return;
+        }
+
+        try
+        {
+            var path = _sorter.RenameFolder(folder.Path, name);
+            NewFolderName = string.Empty;
+            _lastMove = null; // its paths may be inside the renamed folder
+            await LoadTreeAsync(path, keepStatus: true);
+            StatusText = $"Renamed \"{folder.Name}\" to \"{name}\".";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            StatusText = $"The folder could not be renamed: {ex.Message}";
+        }
+    }
+
+    private bool CanRenameFolder() =>
+        !IsBusy && SelectedFolder is { Parent: not null } && !string.IsNullOrWhiteSpace(NewFolderName);
+
+    /// <summary>Asks the user to confirm moving the selected folder to the trash, showing what it contains.</summary>
+    [RelayCommand(CanExecute = nameof(CanDeleteFolder))]
+    private async Task DeleteFolderAsync()
+    {
+        var folder = SelectedFolder!;
+        try
+        {
+            var contents = await Task.Run(() => PhotoSorter.CountContents(folder.Path));
+            AskToDelete(folder, contents, changed: false);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            StatusText = $"The folder could not be read: {ex.Message}";
+        }
+    }
+
+    private bool CanDeleteFolder() => !IsBusy && SelectedFolder is { Parent: not null };
+
+    [RelayCommand(CanExecute = nameof(IsIdle))]
+    private async Task ConfirmDeleteAsync()
+    {
+        if (FolderToDelete is not { } folder)
+        {
+            return;
+        }
+
+        FolderToDelete = null;
+        IsBusy = true;
+        try
+        {
+            // The user agreed to what the folder contained then; if that changed, ask again.
+            var now = await Task.Run(() => PhotoSorter.CountContents(folder.Path));
+            if (now != _contentsToDelete)
+            {
+                AskToDelete(folder, now, changed: true);
+                return;
+            }
+
+            await _sorter.MoveFolderToTrashAsync(folder.Path);
+            _lastMove = null;
+            StatusText = $"Moved \"{folder.DisplayPath}\" to the trash.";
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            StatusText = $"The folder was not deleted: {ex.Message}";
+        }
+        finally
+        {
+            IsBusy = false;
+        }
+
+        await LoadTreeAsync(Directory.Exists(folder.Path) ? folder.Path : folder.Parent?.Path, keepStatus: true);
+    }
+
+    [RelayCommand]
+    private void CancelDelete() => FolderToDelete = null;
+
+    private void AskToDelete(SortFolderViewModel folder, FolderContents contents, bool changed)
+    {
+        _contentsToDelete = contents;
+        DeleteConfirmationText = (changed ? "The folder changed. " : string.Empty) +
+                                 (contents.IsEmpty && contents.Subfolders == 0
+                                     ? $"Move the empty folder \"{folder.DisplayPath}\" to the trash?"
+                                     : $"Move \"{folder.DisplayPath}\" to the trash, with {Describe(contents)}? You can restore it from the trash.");
+        FolderToDelete = folder;
+    }
+
+    private static string Describe(FolderContents contents)
+    {
+        var parts = new List<string> { $"{contents.Photos:N0} photo(s) and video(s)" };
+        if (contents.OtherFiles > 0)
+        {
+            parts.Add($"{contents.OtherFiles:N0} other file(s)");
+        }
+
+        if (contents.Subfolders > 0)
+        {
+            parts.Add($"{contents.Subfolders:N0} subfolder(s)");
+        }
+
+        return string.Join(", ", parts);
+    }
 
     // ---- Selecting and moving ----------------------------------------------------------
 

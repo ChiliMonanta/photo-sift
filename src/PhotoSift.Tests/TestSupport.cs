@@ -85,7 +85,15 @@ public sealed class FakeTrashService : ITrashService
             throw new IOException("Trash is not available (simulated).");
         }
 
-        File.Delete(path);
+        if (Directory.Exists(path))
+        {
+            Directory.Delete(path, recursive: true); // test folders only
+        }
+        else
+        {
+            File.Delete(path);
+        }
+
         Trashed.Enqueue(path);
         return Task.CompletedTask;
     }

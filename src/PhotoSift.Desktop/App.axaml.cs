@@ -46,7 +46,7 @@ public partial class App : Application
             var folderPicker = new FolderPicker(window);
             var (import, importWarning) = OpenImport(cache, folderPicker);
             var (upload, uploadWarning) = OpenUpload(cache, driveViewModel, folderPicker);
-            var sort = new SortViewModel(new PhotoSorter(cache), folderPicker, new ThumbnailLoader(), import?.Journal);
+            var sort = new SortViewModel(new PhotoSorter(cache, TrashServiceFactory.Create()), folderPicker, new ThumbnailLoader(), import?.Journal);
             _ = sort.InitializeAsync();
 
             window.DataContext = new MainWindowViewModel(

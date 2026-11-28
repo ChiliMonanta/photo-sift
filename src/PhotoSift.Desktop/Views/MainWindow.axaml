@@ -235,6 +235,15 @@
           </Border>
 
           <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,12,0,0">
+            <Border Background="#33FFA500" CornerRadius="4" Padding="8" IsVisible="{Binding IsConfirmingDelete}">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="12,0,0,0" VerticalAlignment="Center">
+                  <Button Content="Cancel" Command="{Binding CancelDeleteCommand}" />
+                  <Button Content="Move to trash" Command="{Binding ConfirmDeleteCommand}" Classes="accent" />
+                </StackPanel>
+                <TextBlock Text="{Binding DeleteConfirmationText}" TextWrapping="Wrap" FontWeight="SemiBold" VerticalAlignment="Center" />
+              </DockPanel>
+            </Border>
             <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
             <Expander Header="Problems" HorizontalAlignment="Stretch" IsVisible="{Binding HasProblems}" IsExpanded="True">
               <ListBox ItemsSource="{Binding Problems}" MaxHeight="160" />
@@ -247,15 +256,19 @@
               <DockPanel>
                 <TextBlock DockPanel.Dock="Top" Classes="heading" Text="Folders" Margin="0,0,0,8" />
                 <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
-                  <TextBlock Classes="muted" Text="New folder in the selected folder" TextWrapping="Wrap" />
-                  <DockPanel>
-                    <Button DockPanel.Dock="Right" Content="Create" Command="{Binding CreateFolderCommand}" Margin="8,0,0,0" />
-                    <TextBox Text="{Binding NewFolderName}" PlaceholderText="Folder name">
-                      <TextBox.KeyBindings>
-                        <KeyBinding Gesture="Enter" Command="{Binding CreateFolderCommand}" />
-                      </TextBox.KeyBindings>
-                    </TextBox>
-                  </DockPanel>
+                  <TextBox Text="{Binding NewFolderName}" PlaceholderText="Folder name">
+                    <TextBox.KeyBindings>
+                      <KeyBinding Gesture="Enter" Command="{Binding CreateFolderCommand}" />
+                    </TextBox.KeyBindings>
+                  </TextBox>
+                  <StackPanel Orientation="Horizontal" Spacing="6">
+                    <Button Content="New folder" Command="{Binding CreateFolderCommand}"
+                            ToolTip.Tip="Creates a folder with this name in the selected folder." />
+                    <Button Content="Rename" Command="{Binding RenameFolderCommand}"
+                            ToolTip.Tip="Gives the selected folder this name." />
+                    <Button Content="Delete…" Command="{Binding DeleteFolderCommand}"
+                            ToolTip.Tip="Moves the selected folder, with everything in it, to the trash." />
+                  </StackPanel>
                 </StackPanel>
                 <TreeView x:Name="SortFolderTree" ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}"
                           DragDrop.AllowDrop="True">
