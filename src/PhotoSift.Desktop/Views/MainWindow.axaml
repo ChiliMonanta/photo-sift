@@ -24,145 +24,206 @@
   </Window.Styles>
 
   <Panel>
-    <DockPanel Margin="16">
+    <TabControl Margin="8,0,8,8">
+      <TabItem Header="Find duplicates">
+        <DockPanel Margin="8">
 
-      <!-- Google Drive -->
-      <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12" IsVisible="{Binding HasDrive}">
-        <DockPanel DataContext="{Binding Drive}" x:DataType="vm:GoogleDriveViewModel">
-          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-            <Button Content="Connect Google Drive…" Command="{Binding ConnectCommand}" IsVisible="{Binding !IsConnected}" />
-            <Button Content="Cancel sign-in" Command="{Binding ConnectCancelCommand}" IsVisible="{Binding IsBusy}" />
-            <Button Content="Browse Google Drive…" Command="{Binding BrowseCommand}" IsVisible="{Binding IsConnected}" />
-            <Button Content="Disconnect" Command="{Binding DisconnectCommand}" IsVisible="{Binding IsConnected}" />
-          </StackPanel>
-          <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
-            <TextBlock Classes="heading" Text="Google Drive" />
-            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes="muted" />
-          </StackPanel>
-        </DockPanel>
-      </Border>
-
-      <!-- Folder selection -->
-      <Grid DockPanel.Dock="Top" ColumnDefinitions="*,16,*" Margin="0,0,0,12">
-        <Border Classes="card">
-          <DockPanel>
-            <TextBlock DockPanel.Dock="Top" Classes="heading" Text="Folders to scan" Margin="0,0,0,8" />
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-              <Button Content="Add folders…" Command="{Binding AddFoldersCommand}" />
-              <Button Content="Remove" Command="{Binding RemoveFolderCommand}" />
-            </StackPanel>
-            <ListBox ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}"
-                     MinHeight="64" MaxHeight="120">
-              <ListBox.ItemTemplate>
-                <DataTemplate x:DataType="x:String">
-                  <TextBlock Text="{Binding Converter={x:Static svc:LocationLabels.Converter}}" />
-                </DataTemplate>
-              </ListBox.ItemTemplate>
-            </ListBox>
-          </DockPanel>
-        </Border>
-
-        <Border Grid.Column="2" Classes="card">
-          <DockPanel>
-            <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,8">
-              <TextBlock Classes="heading" Text="Master folders" />
-              <TextBlock TextWrapping="Wrap" Classes="muted"
-                         Text="In groups with a copy in any master folder, all copies outside the master folders are marked for deletion. Groups without a master copy are not changed." />
-            </StackPanel>
-            <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
-              <Button Content="Add master folders…" Command="{Binding AddMasterFoldersCommand}" />
-              <Button Content="Remove" Command="{Binding RemoveMasterFolderCommand}" />
-              <Button Content="Apply again" Command="{Binding ApplyMasterFoldersCommand}" />
-              <Button Content="Clear" Command="{Binding ClearMasterFoldersCommand}" />
-            </StackPanel>
-            <Panel>
-              <ListBox ItemsSource="{Binding MasterFolders}" SelectedItem="{Binding SelectedMasterFolder}"
-                       MinHeight="64" MaxHeight="120">
-                <ListBox.ItemTemplate>
-                  <DataTemplate x:DataType="x:String">
-                    <TextBlock Text="{Binding Converter={x:Static svc:LocationLabels.Converter}}" />
-                  </DataTemplate>
-                </ListBox.ItemTemplate>
-              </ListBox>
-              <TextBlock Text="No master folders selected" Classes="muted" Margin="12"
-                         IsHitTestVisible="False" IsVisible="{Binding !HasMasterFolders}" />
-            </Panel>
-          </DockPanel>
-        </Border>
-      </Grid>
-
-      <!-- Scan controls -->
-      <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
-        <StackPanel Orientation="Horizontal" Spacing="8">
-          <Button Content="Scan for duplicates" Command="{Binding ScanCommand}" Classes="accent" />
-          <Button Content="Cancel scan" Command="{Binding ScanCancelCommand}" IsVisible="{Binding IsScanning}" />
-        </StackPanel>
-        <ProgressBar Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
-                     IsIndeterminate="{Binding IsProgressIndeterminate}" />
-        <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
-        <Border Background="#33FFA500" CornerRadius="4" Padding="8" IsVisible="{Binding IsScanIncomplete}">
-          <TextBlock Text="{Binding ScanSummary}" TextWrapping="Wrap" FontWeight="SemiBold" />
-        </Border>
-      </StackPanel>
-
-      <!-- Deletion bar -->
-      <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,12,0,0">
-        <DockPanel>
-          <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
-            <Button Content="Clear marks" Command="{Binding ClearMarksCommand}" />
-            <Button Content="Review and move to trash…" Command="{Binding ReviewDeletionCommand}" Classes="accent" />
-          </StackPanel>
-          <TextBlock Text="{Binding MarkedSummary}" VerticalAlignment="Center" />
-        </DockPanel>
-      </Border>
-
-      <!-- Issues -->
-      <Expander DockPanel.Dock="Bottom" Header="Errors and notes" HorizontalAlignment="Stretch" Margin="0,12,0,0"
-                IsVisible="{Binding HasIssues}">
-        <ListBox ItemsSource="{Binding Issues}" MaxHeight="160" />
-      </Expander>
-
-      <!-- Duplicate groups (virtualized: thumbnails load only for displayed groups) -->
-      <ListBox ItemsSource="{Binding Groups}">
-        <ListBox.ItemTemplate>
-          <DataTemplate x:DataType="vm:DuplicateGroupViewModel">
-            <Grid ColumnDefinitions="Auto,16,*" Margin="0,6">
-              <Border Width="144" Height="144" CornerRadius="4" ClipToBounds="True"
-                      Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
-                <Panel>
-                  <Image Source="{Binding Thumbnail}" Stretch="Uniform" IsVisible="{Binding HasThumbnail}" />
-                  <TextBlock Text="{Binding ThumbnailStatus}" IsVisible="{Binding !HasThumbnail}"
-                             TextWrapping="Wrap" TextAlignment="Center" Margin="8"
-                             HorizontalAlignment="Center" VerticalAlignment="Center" Classes="muted" />
-                </Panel>
-              </Border>
-              <StackPanel Grid.Column="2" Spacing="4">
-                <TextBlock Text="{Binding Header}" Classes="heading" />
-                <ItemsControl ItemsSource="{Binding Files}">
-                  <ItemsControl.ItemTemplate>
-                    <DataTemplate x:DataType="vm:FileEntryViewModel">
-                      <CheckBox IsChecked="{Binding IsMarked}" IsEnabled="{Binding CanMark}">
-                        <StackPanel>
-                          <StackPanel Orientation="Horizontal" Spacing="8">
-                            <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" />
-                            <TextBlock Text="(Google Drive · read-only, kept)" IsVisible="{Binding IsReadOnly}"
-                                       ToolTip.Tip="{Binding ReadOnlyReason}" Foreground="SteelBlue" />
-                            <TextBlock Text="(master folder)" IsVisible="{Binding IsInMasterFolder}" Foreground="SeaGreen" />
-                            <TextBlock Text="(moved to trash)" IsVisible="{Binding IsTrashed}" Foreground="IndianRed" />
-                            <TextBlock Text="(kept — at least one copy must remain)" IsVisible="{Binding IsLastKeptCopy}" Classes="muted" />
-                          </StackPanel>
-                          <TextBlock Text="{Binding DirectoryPath}" Classes="muted" TextWrapping="Wrap" />
-                        </StackPanel>
-                      </CheckBox>
-                    </DataTemplate>
-                  </ItemsControl.ItemTemplate>
-                </ItemsControl>
+          <!-- Google Drive -->
+          <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12" IsVisible="{Binding HasDrive}">
+            <DockPanel DataContext="{Binding Drive}" x:DataType="vm:GoogleDriveViewModel">
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="Connect Google Drive…" Command="{Binding ConnectCommand}" IsVisible="{Binding !IsConnected}" />
+                <Button Content="Cancel sign-in" Command="{Binding ConnectCancelCommand}" IsVisible="{Binding IsBusy}" />
+                <Button Content="Browse Google Drive…" Command="{Binding BrowseCommand}" IsVisible="{Binding IsConnected}" />
+                <Button Content="Disconnect" Command="{Binding DisconnectCommand}" IsVisible="{Binding IsConnected}" />
               </StackPanel>
-            </Grid>
-          </DataTemplate>
-        </ListBox.ItemTemplate>
-      </ListBox>
-    </DockPanel>
+              <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
+                <TextBlock Classes="heading" Text="Google Drive" />
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes="muted" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <!-- Folder selection -->
+          <Grid DockPanel.Dock="Top" ColumnDefinitions="*,16,*" Margin="0,0,0,12">
+            <Border Classes="card">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="heading" Text="Folders to scan" Margin="0,0,0,8" />
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                  <Button Content="Add folders…" Command="{Binding AddFoldersCommand}" />
+                  <Button Content="Remove" Command="{Binding RemoveFolderCommand}" />
+                </StackPanel>
+                <ListBox ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}"
+                         MinHeight="64" MaxHeight="120">
+                  <ListBox.ItemTemplate>
+                    <DataTemplate x:DataType="x:String">
+                      <TextBlock Text="{Binding Converter={x:Static svc:LocationLabels.Converter}}" />
+                    </DataTemplate>
+                  </ListBox.ItemTemplate>
+                </ListBox>
+              </DockPanel>
+            </Border>
+
+            <Border Grid.Column="2" Classes="card">
+              <DockPanel>
+                <StackPanel DockPanel.Dock="Top" Spacing="4" Margin="0,0,0,8">
+                  <TextBlock Classes="heading" Text="Master folders" />
+                  <TextBlock TextWrapping="Wrap" Classes="muted"
+                             Text="In groups with a copy in any master folder, all copies outside the master folders are marked for deletion. Groups without a master copy are not changed." />
+                </StackPanel>
+                <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" Spacing="8" Margin="0,8,0,0">
+                  <Button Content="Add master folders…" Command="{Binding AddMasterFoldersCommand}" />
+                  <Button Content="Remove" Command="{Binding RemoveMasterFolderCommand}" />
+                  <Button Content="Apply again" Command="{Binding ApplyMasterFoldersCommand}" />
+                  <Button Content="Clear" Command="{Binding ClearMasterFoldersCommand}" />
+                </StackPanel>
+                <Panel>
+                  <ListBox ItemsSource="{Binding MasterFolders}" SelectedItem="{Binding SelectedMasterFolder}"
+                           MinHeight="64" MaxHeight="120">
+                    <ListBox.ItemTemplate>
+                      <DataTemplate x:DataType="x:String">
+                        <TextBlock Text="{Binding Converter={x:Static svc:LocationLabels.Converter}}" />
+                      </DataTemplate>
+                    </ListBox.ItemTemplate>
+                  </ListBox>
+                  <TextBlock Text="No master folders selected" Classes="muted" Margin="12"
+                             IsHitTestVisible="False" IsVisible="{Binding !HasMasterFolders}" />
+                </Panel>
+              </DockPanel>
+            </Border>
+          </Grid>
+
+          <!-- Scan controls -->
+          <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
+            <StackPanel Orientation="Horizontal" Spacing="8">
+              <Button Content="Scan for duplicates" Command="{Binding ScanCommand}" Classes="accent" />
+              <Button Content="Cancel scan" Command="{Binding ScanCancelCommand}" IsVisible="{Binding IsScanning}" />
+            </StackPanel>
+            <ProgressBar Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
+                         IsIndeterminate="{Binding IsProgressIndeterminate}" />
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+            <Border Background="#33FFA500" CornerRadius="4" Padding="8" IsVisible="{Binding IsScanIncomplete}">
+              <TextBlock Text="{Binding ScanSummary}" TextWrapping="Wrap" FontWeight="SemiBold" />
+            </Border>
+          </StackPanel>
+
+          <!-- Deletion bar -->
+          <Border DockPanel.Dock="Bottom" Classes="card" Margin="0,12,0,0">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8">
+                <Button Content="Clear marks" Command="{Binding ClearMarksCommand}" />
+                <Button Content="Review and move to trash…" Command="{Binding ReviewDeletionCommand}" Classes="accent" />
+              </StackPanel>
+              <TextBlock Text="{Binding MarkedSummary}" VerticalAlignment="Center" />
+            </DockPanel>
+          </Border>
+
+          <!-- Issues -->
+          <Expander DockPanel.Dock="Bottom" Header="Errors and notes" HorizontalAlignment="Stretch" Margin="0,12,0,0"
+                    IsVisible="{Binding HasIssues}">
+            <ListBox ItemsSource="{Binding Issues}" MaxHeight="160" />
+          </Expander>
+
+          <!-- Duplicate groups (virtualized: thumbnails load only for displayed groups) -->
+          <ListBox ItemsSource="{Binding Groups}">
+            <ListBox.ItemTemplate>
+              <DataTemplate x:DataType="vm:DuplicateGroupViewModel">
+                <Grid ColumnDefinitions="Auto,16,*" Margin="0,6">
+                  <Border Width="144" Height="144" CornerRadius="4" ClipToBounds="True"
+                          Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+                    <Panel>
+                      <Image Source="{Binding Thumbnail}" Stretch="Uniform" IsVisible="{Binding HasThumbnail}" />
+                      <TextBlock Text="{Binding ThumbnailStatus}" IsVisible="{Binding !HasThumbnail}"
+                                 TextWrapping="Wrap" TextAlignment="Center" Margin="8"
+                                 HorizontalAlignment="Center" VerticalAlignment="Center" Classes="muted" />
+                    </Panel>
+                  </Border>
+                  <StackPanel Grid.Column="2" Spacing="4">
+                    <TextBlock Text="{Binding Header}" Classes="heading" />
+                    <ItemsControl ItemsSource="{Binding Files}">
+                      <ItemsControl.ItemTemplate>
+                        <DataTemplate x:DataType="vm:FileEntryViewModel">
+                          <CheckBox IsChecked="{Binding IsMarked}" IsEnabled="{Binding CanMark}">
+                            <StackPanel>
+                              <StackPanel Orientation="Horizontal" Spacing="8">
+                                <TextBlock Text="{Binding FileName}" FontWeight="SemiBold" />
+                                <TextBlock Text="(Google Drive · read-only, kept)" IsVisible="{Binding IsReadOnly}"
+                                           ToolTip.Tip="{Binding ReadOnlyReason}" Foreground="SteelBlue" />
+                                <TextBlock Text="(master folder)" IsVisible="{Binding IsInMasterFolder}" Foreground="SeaGreen" />
+                                <TextBlock Text="(moved to trash)" IsVisible="{Binding IsTrashed}" Foreground="IndianRed" />
+                                <TextBlock Text="(kept — at least one copy must remain)" IsVisible="{Binding IsLastKeptCopy}" Classes="muted" />
+                              </StackPanel>
+                              <TextBlock Text="{Binding DirectoryPath}" Classes="muted" TextWrapping="Wrap" />
+                            </StackPanel>
+                          </CheckBox>
+                        </DataTemplate>
+                      </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                  </StackPanel>
+                </Grid>
+              </DataTemplate>
+            </ListBox.ItemTemplate>
+          </ListBox>
+        </DockPanel>
+      </TabItem>
+
+      <!-- Import from phone -->
+      <TabItem Header="Import from phone" IsVisible="{Binding HasImport}">
+        <DockPanel Margin="8" DataContext="{Binding Import}" x:DataType="vm:ImportViewModel">
+          <StackPanel DockPanel.Dock="Top" Spacing="12">
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="heading" Text="Import from" />
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
+                    <Button Content="Refresh" Command="{Binding RefreshPhonesCommand}" />
+                    <Button Content="Import from folder…" Command="{Binding AddFolderSourceCommand}" />
+                  </StackPanel>
+                  <ComboBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" HorizontalAlignment="Stretch"
+                            IsEnabled="{Binding IsIdle}" PlaceholderText="Click Refresh to find connected phones" />
+                </DockPanel>
+                <TextBlock TextWrapping="Wrap" Classes="muted"
+                           Text="Android: unlock the phone and choose &quot;File transfer&quot; in the USB notification. iPhone: unlock it, tap &quot;Trust&quot;, and set Settings &gt; Photos &gt; Transfer to Mac or PC to &quot;Keep Originals&quot;." />
+                <TextBlock Text="{Binding PhonesUnavailableReason}" TextWrapping="Wrap" Foreground="IndianRed"
+                           IsVisible="{Binding PhonesUnavailableReason, Converter={x:Static ObjectConverters.IsNotNull}}" />
+              </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="heading" Text="Copy to" />
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Change…" Command="{Binding ChangeDestinationCommand}" Margin="8,0,0,0" />
+                  <TextBlock Text="{Binding DestinationFolder}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
+                <TextBlock TextWrapping="Wrap" Classes="muted"
+                           Text="Photos and videos keep the phone's folders, in a folder named after the phone. Files imported before are skipped." />
+              </StackPanel>
+            </Border>
+
+            <StackPanel Spacing="6">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Check" Command="{Binding CheckCommand}" />
+                <Button Content="Start copy" Command="{Binding StartCommand}" Classes="accent" />
+                <Button Content="Cancel" Command="{Binding CheckCancelCommand}" IsVisible="{Binding CheckCommand.IsRunning}" />
+                <Button Content="Cancel" Command="{Binding StartCancelCommand}" IsVisible="{Binding StartCommand.IsRunning}" />
+              </StackPanel>
+              <TextBlock Text="{Binding SummaryText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <ProgressBar Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
+                           IsIndeterminate="{Binding IsProgressIndeterminate}" />
+              <TextBlock Text="{Binding FilesLeftText}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding CurrentFileText}" TextWrapping="Wrap" Classes="muted" />
+              <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+            </StackPanel>
+          </StackPanel>
+
+          <Expander Header="Problems" HorizontalAlignment="Stretch" Margin="0,12,0,0" IsVisible="{Binding HasProblems}"
+                    IsExpanded="True" VerticalAlignment="Top">
+            <ListBox ItemsSource="{Binding Problems}" MaxHeight="220" />
+          </Expander>
+        </DockPanel>
+      </TabItem>
+    </TabControl>
 
     <!-- Google Drive folder browser -->
     <Border Background="#99000000" IsVisible="{Binding Drive.IsBrowsing, FallbackValue=False}">

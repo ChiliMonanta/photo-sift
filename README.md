@@ -36,6 +36,12 @@ Prebuilt apps for Windows, macOS, and Linux are on the [Releases page](https://g
 
 To try the packaging without releasing, run the Release workflow manually from the Actions tab; the packages are attached to the run as artifacts.
 
+## Import from phone
+
+The **Import from phone** tab copies photos and videos from an Android phone or iPhone (Windows), or from any folder such as a memory card. Connect the phone with a USB cable and unlock it (Android: choose "File transfer"; iPhone: tap "Trust" and set Settings > Photos > Transfer to Mac or PC to "Keep Originals"), click **Refresh**, choose the phone, and click **Start copy**.
+
+Nothing on the phone is changed. Files imported before are skipped, and if the import is interrupted, clicking **Start copy** again continues where it stopped; a file whose copy was cut off is copied again, so no broken files are left behind.
+
 ## Google Drive (in development)
 
 PhotoSift can scan folders in your own My Drive, read-only, together with local folders (Windows only for now). Click **Connect Google Drive…**, sign in in your browser, then **Browse Google Drive…** to add Drive folders to scan or as master folders. Hashes come from Drive's metadata, so no photos are downloaded. Drive copies are never moved to the trash in this version, but they count as kept copies when you delete local duplicates.

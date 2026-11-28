@@ -23,8 +23,10 @@ public sealed partial class MainWindowViewModel : ObservableObject
         IFolderPicker folderPicker,
         ThumbnailLoader thumbnailLoader,
         string? startupWarning = null,
-        GoogleDriveViewModel? drive = null)
+        GoogleDriveViewModel? drive = null,
+        ImportViewModel? import = null)
     {
+        Import = import;
         _scanner = scanner;
         _deleter = deleter;
         _folderPicker = folderPicker;
@@ -53,6 +55,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
     public GoogleDriveViewModel? Drive { get; }
 
     public bool HasDrive => Drive is not null;
+
+    /// <summary>Phone import (the "Import from phone" tab); null when the import journal could not be opened.</summary>
+    public ImportViewModel? Import { get; }
+
+    public bool HasImport => Import is not null;
 
     // ---- Folders -------------------------------------------------------------
 
