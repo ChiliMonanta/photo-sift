@@ -10,6 +10,7 @@ using PhotoSift.Core.Hashing;
 using PhotoSift.Core.Import;
 using PhotoSift.Core.Scanning;
 using PhotoSift.Core.Sources;
+using PhotoSift.Core.Upload;
 using PhotoSift.Desktop.Platform;
 using PhotoSift.Desktop.Services;
 using PhotoSift.Desktop.ViewModels;
@@ -43,21 +44,24 @@ public partial class App : Application
 
             var folderPicker = new FolderPicker(window);
             var (import, importWarning) = OpenImport(cache, folderPicker);
+            var (upload, uploadWarning) = OpenUpload(cache, driveViewModel, folderPicker);
 
             window.DataContext = new MainWindowViewModel(
                 new DuplicateScanner(sources),
                 new SafeDeleter(sources),
                 folderPicker,
                 new ThumbnailLoader(sources),
-                cacheWarning ?? importWarning,
+                cacheWarning ?? importWarning ?? uploadWarning,
                 driveViewModel,
-                import);
+                import,
+                upload);
 
             desktop.MainWindow = window;
             desktop.Exit += (_, _) =>
             {
                 import?.Dispose();
                 import?.Journal.Dispose();
+                upload?.Journal.Dispose();
                 (cache as IDisposable)?.Dispose();
                 http.Dispose();
             };
@@ -85,6 +89,20 @@ public partial class App : Application
         catch (Exception ex)
         {
             return (null, $"Phone import is unavailable: the import journal could not be opened. {ex.Message}");
+        }
+    }
+
+    private static (UploadViewModel? Upload, string? Warning) OpenUpload(
+        IHashCache cache, GoogleDriveViewModel drive, IFolderPicker folderPicker)
+    {
+        try
+        {
+            var journal = new UploadJournal(UploadJournal.DefaultPath);
+            return (new UploadViewModel(new DriveUploader(journal, hashCache: cache), journal, drive, folderPicker), null);
+        }
+        catch (Exception ex)
+        {
+            return (null, $"Uploading is unavailable: the upload journal could not be opened. {ex.Message}");
         }
     }
 

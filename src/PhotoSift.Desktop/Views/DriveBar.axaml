@@ -1,0 +1,22 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:PhotoSift.Desktop.ViewModels"
+             x:Class="PhotoSift.Desktop.Views.DriveBar"
+             x:DataType="vm:GoogleDriveViewModel">
+  <!-- The Google Drive connection, shown in every tab that uses Drive. -->
+  <Border Classes="card">
+    <DockPanel>
+      <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+        <Button Content="Connect Google Drive…" Command="{Binding ConnectCommand}" IsVisible="{Binding !IsConnected}" />
+        <Button Content="Allow uploads…" Command="{Binding ConnectCommand}" IsVisible="{Binding NeedsUploadPermission}" />
+        <Button Content="Cancel sign-in" Command="{Binding ConnectCancelCommand}" IsVisible="{Binding IsBusy}" />
+        <Button Content="Browse Google Drive…" Command="{Binding BrowseCommand}" IsVisible="{Binding IsConnected}" />
+        <Button Content="Disconnect" Command="{Binding DisconnectCommand}" IsVisible="{Binding IsConnected}" />
+      </StackPanel>
+      <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
+        <TextBlock Classes="heading" Text="Google Drive" />
+        <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes="muted" />
+      </StackPanel>
+    </DockPanel>
+  </Border>
+</UserControl>

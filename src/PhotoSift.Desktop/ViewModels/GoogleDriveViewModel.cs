@@ -9,6 +9,10 @@ namespace PhotoSift.Desktop.ViewModels;
 /// <summary>Adds a Drive folder to the folders to scan, or to the master folders.</summary>
 public delegate void AddDriveFolder(string location, string label, bool asMaster);
 
+/// <summary>A Drive folder the user chose, e.g. to upload to.</summary>
+/// <param name="Path">E.g. "My Drive/Photos".</param>
+public sealed record DriveFolderChoice(string AccountId, string FolderId, string Path);
+
 /// <summary>Connecting and disconnecting Google Drive, and opening the Drive folder browser.</summary>
 public sealed partial class GoogleDriveViewModel : ObservableObject
 {
@@ -16,7 +20,7 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
 
     private readonly DriveConnection _connection;
     private readonly Func<Uri, CancellationToken, Task> _openBrowser;
-    private bool _isAppBusy;
+    private readonly HashSet<string> _busyParts = [];
 
     public GoogleDriveViewModel(DriveConnection connection, Func<Uri, CancellationToken, Task> openBrowser)
     {
@@ -30,9 +34,21 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
 
     public bool IsAvailable => _connection.UnavailableReason is null;
 
+    /// <summary>The connection, for features that use Drive (scanning, uploading).</summary>
+    public IDriveSession Session => _connection;
+
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(BrowseCommand))]
     public partial bool IsConnected { get; private set; }
+
+    /// <summary>Connected with permission to add files. Sign-ins from before uploading existed are read-only.</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(ConnectCommand))]
+    [NotifyPropertyChangedFor(nameof(NeedsUploadPermission))]
+    public partial bool CanUpload { get; private set; }
+
+    /// <summary>Connected, but read-only: connecting again allows uploads.</summary>
+    public bool NeedsUploadPermission => IsConnected && !CanUpload;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ConnectCommand), nameof(DisconnectCommand), nameof(BrowseCommand))]
@@ -62,10 +78,21 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
         }
     }
 
-    /// <summary>Connecting and disconnecting is not allowed while a scan or deletion runs.</summary>
-    public void SetAppBusy(bool busy)
+    /// <summary>
+    /// Connecting and disconnecting is not allowed while a scan, deletion or upload runs.
+    /// <paramref name="part"/> names who is busy, so one part finishing does not unlock another.
+    /// </summary>
+    public void SetAppBusy(bool busy, string part = "scan")
     {
-        _isAppBusy = busy;
+        if (busy)
+        {
+            _busyParts.Add(part);
+        }
+        else
+        {
+            _busyParts.Remove(part);
+        }
+
         ConnectCommand.NotifyCanExecuteChanged();
         DisconnectCommand.NotifyCanExecuteChanged();
         BrowseCommand.NotifyCanExecuteChanged();
@@ -82,7 +109,7 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
         {
             var account = await _connection.ConnectAsync(_openBrowser, timeout.Token);
             UpdateState();
-            StatusText = $"Connected to Google Drive as {account.Email} (read-only).";
+            StatusText = ConnectedText(account);
         }
         catch (OperationCanceledException)
         {
@@ -102,7 +129,7 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
         }
     }
 
-    private bool CanConnect() => IsAvailable && !IsConnected && !IsBusy && !_isAppBusy;
+    private bool CanConnect() => IsAvailable && (!IsConnected || !CanUpload) && !IsBusy && _busyParts.Count == 0;
 
     [RelayCommand(CanExecute = nameof(CanDisconnect))]
     private async Task DisconnectAsync()
@@ -127,7 +154,7 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
         }
     }
 
-    private bool CanDisconnect() => IsConnected && !IsBusy && !_isAppBusy;
+    private bool CanDisconnect() => IsConnected && !IsBusy && _busyParts.Count == 0;
 
     [RelayCommand(CanExecute = nameof(CanBrowse))]
     private async Task BrowseAsync()
@@ -142,19 +169,52 @@ public sealed partial class GoogleDriveViewModel : ObservableObject
         await browser.LoadRootAsync();
     }
 
-    private bool CanBrowse() => IsConnected && !IsBusy && !_isAppBusy;
+    private bool CanBrowse() => IsConnected && !IsBusy && _busyParts.Count == 0;
+
+    /// <summary>Opens the folder browser to choose one folder. Returns null if the user closes it.</summary>
+    public async Task<DriveFolderChoice?> ChooseFolderAsync(string purpose)
+    {
+        if (_connection.Api is not { } api || _connection.Account is not { } account || Browser is not null)
+        {
+            return null;
+        }
+
+        var chosen = new TaskCompletionSource<DriveFolderChoice?>();
+        var browser = new DriveBrowserViewModel(api, account, null, () =>
+        {
+            Browser = null;
+            chosen.TrySetResult(null);
+        })
+        {
+            ChooseLabel = purpose,
+            Choose = choice =>
+            {
+                Browser = null;
+                chosen.TrySetResult(choice);
+            },
+        };
+        Browser = browser;
+        await browser.LoadRootAsync();
+        return await chosen.Task;
+    }
 
     private void UpdateState()
     {
         IsConnected = _connection.Account is not null;
+        CanUpload = _connection.CanUpload;
+        OnPropertyChanged(nameof(NeedsUploadPermission));
         StatusText = _connection.UnavailableReason
                      ?? (_connection.Account is { } account
-                         ? $"Connected to Google Drive as {account.Email} (read-only)."
+                         ? ConnectedText(account)
                          : _connection.NeedsReconnect
                              ? "PhotoSift now also shows previews from Google Drive, which needs a new permission. Connect Google Drive again."
-                             : "Not connected. Connect to scan folders in your My Drive (read-only).");
+                             : "Not connected. Connect to scan folders in your My Drive and to upload photos.");
         OnPropertyChanged(nameof(IsAvailable));
     }
+
+    private string ConnectedText(DriveAccount account) => _connection.CanUpload
+        ? $"Connected to Google Drive as {account.Email}."
+        : $"Connected to Google Drive as {account.Email} (read-only). Click \"Allow uploads…\" to upload photos.";
 }
 
 public sealed record DriveFolderNode(string Id, string Name);
@@ -165,6 +225,20 @@ public sealed partial class DriveBrowserViewModel(IDriveApi api, DriveAccount ac
 {
     public ObservableCollection<DriveFolderNode> PathNodes { get; } = [];
 
+    /// <summary>Set when the browser is used to choose one folder (e.g. to upload to) instead of adding folders to scan.</summary>
+    public Action<DriveFolderChoice>? Choose { get; init; }
+
+    /// <summary>The text of the choose button, e.g. "Upload to this folder".</summary>
+    public string ChooseLabel { get; init; } = "Choose this folder";
+
+    public bool IsChoosing => Choose is not null;
+
+    public bool IsAdding => Choose is null;
+
+    public string HintText => IsChoosing
+        ? "Double-click a folder to open it. The button below chooses the folder shown above."
+        : "Double-click a folder to open it. The buttons below add the folder shown above, including its subfolders.";
+
     public ObservableCollection<DriveFolderNode> Children { get; } = [];
 
     [ObservableProperty]
@@ -172,7 +246,8 @@ public sealed partial class DriveBrowserViewModel(IDriveApi api, DriveAccount ac
     public partial DriveFolderNode? SelectedChild { get; set; }
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(OpenCommand), nameof(UpCommand), nameof(AddToScanCommand), nameof(AddAsMasterCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenCommand), nameof(UpCommand), nameof(AddToScanCommand), nameof(AddAsMasterCommand),
+        nameof(ChooseFolderCommand))]
     public partial bool IsLoading { get; private set; }
 
     [ObservableProperty]
@@ -227,6 +302,11 @@ public sealed partial class DriveBrowserViewModel(IDriveApi api, DriveAccount ac
 
     private bool CanAdd() => PathNodes.Count > 0 && !IsLoading && addFolder is not null;
 
+    [RelayCommand(CanExecute = nameof(CanChoose))]
+    private void ChooseFolder() => Choose?.Invoke(new DriveFolderChoice(account.PermissionId, PathNodes[^1].Id, CurrentPath));
+
+    private bool CanChoose() => PathNodes.Count > 0 && !IsLoading && Choose is not null;
+
     [RelayCommand]
     private void Close() => close();
 
@@ -268,6 +348,7 @@ public sealed partial class DriveBrowserViewModel(IDriveApi api, DriveAccount ac
             UpCommand.NotifyCanExecuteChanged();
             AddToScanCommand.NotifyCanExecuteChanged();
             AddAsMasterCommand.NotifyCanExecuteChanged();
+            ChooseFolderCommand.NotifyCanExecuteChanged();
         }
     }
 }

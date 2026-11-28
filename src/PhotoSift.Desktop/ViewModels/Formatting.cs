@@ -15,4 +15,12 @@ internal static class Formatting
 
         return unit == 0 ? $"{bytes} B" : $"{size:0.#} {units[unit]}";
     }
+
+    /// <summary>A rough remaining time for a transfer, e.g. "about 5 min left".</summary>
+    public static string TimeLeft(double seconds) => seconds switch
+    {
+        < 60 => "less than a minute left",
+        < 3600 => $"about {Math.Ceiling(seconds / 60):0} min left",
+        _ => $"about {seconds / 3600:0.0} h left",
+    };
 }

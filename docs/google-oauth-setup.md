@@ -32,12 +32,12 @@ Open **Google Auth Platform** (in older versions of the console: **APIs & Servic
    * **Publishing status:** leave it in **Testing**.
    * **Test users:** add the Google accounts that will sign in, starting with your own. In Testing mode, only these accounts (at most 100) can sign in.
 3. **Data access** → **Add or remove scopes**
-   * Add `https://www.googleapis.com/auth/drive.readonly` (shown as "See and download all your Google Drive files").
+   * Add `https://www.googleapis.com/auth/drive` (shown as "See, edit, create, and delete all of your Google Drive files").
    * Click **Update**, then **Save**.
 
-   PhotoSift uses this scope to read file names, folders, sizes, and MD5 checksums, and to download the small preview images Drive generates. It never downloads the photos themselves. The narrower `drive.metadata.readonly` scope is enough for scanning, but Google does not let it download previews. Moving Drive files to the trash in a later release will need the broader `drive` scope.
+   PhotoSift uses this scope to read file names, folders, sizes, and MD5 checksums, to download the small preview images Drive generates, and to upload photos into folders you choose (**Upload to Google Drive**). It never downloads the photos themselves, and it never changes or deletes existing Drive files. The narrower `drive.file` scope would only let PhotoSift upload into folders it created itself, not into your existing folders.
 
-   If you created the client with `drive.metadata.readonly` earlier, add `drive.readonly` here as well. PhotoSift then asks you to connect Google Drive again.
+   If you created the client with `drive.readonly` or `drive.metadata.readonly` earlier, add `drive` here as well. A `drive.readonly` sign-in keeps working for scanning; click **Allow uploads…** in the app to connect again with upload permission.
 
 ## 4. Create the OAuth client
 
@@ -96,15 +96,15 @@ That is fine for development and for a small group of people.
 
 ## 8. Making the app available to everyone (Google verification)
 
-`drive.readonly` is a **restricted** scope, so an app that anyone can use must be **verified by Google**. When you are ready, go to **Audience → Publish app**, then start the review in **Verification Center**. Google asks for:
+`drive` is a **restricted** scope, so an app that anyone can use must be **verified by Google**. When you are ready, go to **Audience → Publish app**, then start the review in **Verification Center**. Google asks for:
 
 * a **home page** and a **privacy policy** on a domain you have verified ownership of (in Google Search Console);
 * a **demo video** (unlisted YouTube video) that shows the sign-in, the consent screen, and how the app uses the data;
-* a written **justification** for the scope: PhotoSift reads file metadata and MD5 checksums to find duplicate photos, and downloads Drive's small preview images so the user can confirm duplicates visually (the metadata-only scope cannot download them). Everything happens on the user's own device; no data is sent to any server, and full photos are never downloaded.
+* a written **justification** for the scope: PhotoSift reads file metadata and MD5 checksums to find duplicate photos, downloads Drive's small preview images so the user can confirm duplicates visually, and uploads the user's photos into Drive folders the user chooses (which `drive.file` cannot do), skipping photos already there. Everything happens on the user's own device; no data is sent to any other server, and full photos are never downloaded.
 
 Apps that access restricted-scope data through a server must also pass a yearly third-party security assessment (CASA). PhotoSift runs entirely on the user's computer, which normally means the assessment is not required, but Google decides during the review.
 
-The review usually takes from a few weeks to a couple of months. If you add or broaden scopes later (for example `drive` for the trash feature), the app needs a new review.
+The review usually takes from a few weeks to a couple of months. If you add or broaden scopes later, the app needs a new review.
 
 ## Troubleshooting
 
@@ -114,5 +114,6 @@ The review usually takes from a few weeks to a couple of months. If you add or b
 | **"Error 400: redirect_uri_mismatch"** | The client is not of type **Desktop app**. Create a new client with that type. |
 | **"Google Drive API has not been used in project … or it is disabled"** | Enable the Drive API in the same project as the client (step 2). |
 | **Sign-in worked last week but now fails** | In Testing mode, sign-ins expire after 7 days. Sign in again. |
-| **Previews say "Google Drive refused the preview (HTTP 403)"** | The sign-in lacks the `drive.readonly` scope. Check that the scope is added under **Data access**, then disconnect and connect Google Drive again. |
+| **Previews say "Google Drive refused the preview (HTTP 403)"** | The sign-in lacks a Drive scope. Check that `drive` is added under **Data access**, then disconnect and connect Google Drive again. |
+| **"PhotoSift needs permission to see your Google Drive files and add new ones"** | The consent screen did not grant the `drive` scope. Check that it is added under **Data access**, then connect again and allow access. |
 | **`dotnet user-secrets` says the project has no UserSecretsId** | Run the command from the repository root with `--project src/PhotoSift.Desktop`. |

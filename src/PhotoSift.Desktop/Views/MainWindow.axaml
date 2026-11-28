@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:PhotoSift.Desktop.ViewModels"
         xmlns:svc="using:PhotoSift.Desktop.Services"
+        xmlns:views="using:PhotoSift.Desktop.Views"
         x:Class="PhotoSift.Desktop.Views.MainWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="PhotoSift"
@@ -25,24 +26,71 @@
 
   <Panel>
     <TabControl Margin="8,0,8,8">
+      <!-- Import from phone -->
+      <TabItem Header="Import from phone" IsVisible="{Binding HasImport}">
+        <DockPanel Margin="8" DataContext="{Binding Import}" x:DataType="vm:ImportViewModel">
+          <StackPanel DockPanel.Dock="Top" Spacing="12">
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="heading" Text="Import from" />
+                <DockPanel>
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
+                    <Button Content="Refresh" Command="{Binding RefreshPhonesCommand}" />
+                    <Button Content="Import from folder…" Command="{Binding AddFolderSourceCommand}" />
+                  </StackPanel>
+                  <ComboBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" HorizontalAlignment="Stretch"
+                            IsEnabled="{Binding IsIdle}" PlaceholderText="Click Refresh to find connected phones" />
+                </DockPanel>
+                <TextBlock TextWrapping="Wrap" Classes="muted"
+                           Text="Android: unlock the phone and choose &quot;File transfer&quot; in the USB notification. iPhone: unlock it, tap &quot;Trust&quot;, and set Settings &gt; Photos &gt; Transfer to Mac or PC to &quot;Keep Originals&quot;." />
+                <TextBlock Text="{Binding PhonesUnavailableReason}" TextWrapping="Wrap" Foreground="IndianRed"
+                           IsVisible="{Binding PhonesUnavailableReason, Converter={x:Static ObjectConverters.IsNotNull}}" />
+              </StackPanel>
+            </Border>
+
+            <Border Classes="card">
+              <StackPanel Spacing="8">
+                <TextBlock Classes="heading" Text="Copy to" />
+                <DockPanel>
+                  <Button DockPanel.Dock="Right" Content="Change…" Command="{Binding ChangeDestinationCommand}" Margin="8,0,0,0" />
+                  <TextBlock Text="{Binding DestinationFolder}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                </DockPanel>
+                <TextBlock TextWrapping="Wrap" Classes="muted"
+                           Text="Photos and videos keep the phone's folders, in a folder named after the phone. Files imported before are skipped." />
+              </StackPanel>
+            </Border>
+
+            <StackPanel Spacing="6">
+              <StackPanel Orientation="Horizontal" Spacing="8">
+                <Button Content="Check" Command="{Binding CheckCommand}" />
+                <Button Content="Start copy" Command="{Binding StartCommand}" Classes="accent" />
+                <Button Content="Cancel" Command="{Binding CheckCancelCommand}" IsVisible="{Binding CheckCommand.IsRunning}" />
+                <Button Content="Cancel" Command="{Binding StartCancelCommand}" IsVisible="{Binding StartCommand.IsRunning}" />
+              </StackPanel>
+              <TextBlock Text="{Binding SummaryText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+              <ProgressBar Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
+                           IsIndeterminate="{Binding IsProgressIndeterminate}" />
+              <TextBlock Text="{Binding FilesLeftText}" TextWrapping="Wrap" />
+              <TextBlock Text="{Binding CurrentFileText}" TextWrapping="Wrap" Classes="muted" />
+              <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+            </StackPanel>
+          </StackPanel>
+
+          <Expander Header="Problems" HorizontalAlignment="Stretch" Margin="0,12,0,0" IsVisible="{Binding HasProblems}"
+                    IsExpanded="True" VerticalAlignment="Top">
+            <ListBox ItemsSource="{Binding Problems}" MaxHeight="220" />
+          </Expander>
+        </DockPanel>
+      </TabItem>
+
+      <!-- Find duplicates -->
       <TabItem Header="Find duplicates">
         <DockPanel Margin="8">
 
           <!-- Google Drive -->
-          <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12" IsVisible="{Binding HasDrive}">
-            <DockPanel DataContext="{Binding Drive}" x:DataType="vm:GoogleDriveViewModel">
-              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                <Button Content="Connect Google Drive…" Command="{Binding ConnectCommand}" IsVisible="{Binding !IsConnected}" />
-                <Button Content="Cancel sign-in" Command="{Binding ConnectCancelCommand}" IsVisible="{Binding IsBusy}" />
-                <Button Content="Browse Google Drive…" Command="{Binding BrowseCommand}" IsVisible="{Binding IsConnected}" />
-                <Button Content="Disconnect" Command="{Binding DisconnectCommand}" IsVisible="{Binding IsConnected}" />
-              </StackPanel>
-              <StackPanel Spacing="2" VerticalAlignment="Center" Margin="0,0,12,0">
-                <TextBlock Classes="heading" Text="Google Drive" />
-                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" Classes="muted" />
-              </StackPanel>
-            </DockPanel>
-          </Border>
+          <Panel DockPanel.Dock="Top" Margin="0,0,0,12" IsVisible="{Binding HasDrive}">
+            <views:DriveBar DataContext="{Binding Drive}" />
+          </Panel>
 
           <!-- Folder selection -->
           <Grid DockPanel.Dock="Top" ColumnDefinitions="*,16,*" Margin="0,0,0,12">
@@ -167,60 +215,64 @@
         </DockPanel>
       </TabItem>
 
-      <!-- Import from phone -->
-      <TabItem Header="Import from phone" IsVisible="{Binding HasImport}">
-        <DockPanel Margin="8" DataContext="{Binding Import}" x:DataType="vm:ImportViewModel">
-          <StackPanel DockPanel.Dock="Top" Spacing="12">
-            <Border Classes="card">
-              <StackPanel Spacing="8">
-                <TextBlock Classes="heading" Text="Import from" />
-                <DockPanel>
-                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" Margin="8,0,0,0">
-                    <Button Content="Refresh" Command="{Binding RefreshPhonesCommand}" />
-                    <Button Content="Import from folder…" Command="{Binding AddFolderSourceCommand}" />
-                  </StackPanel>
-                  <ComboBox ItemsSource="{Binding Sources}" SelectedItem="{Binding SelectedSource}" HorizontalAlignment="Stretch"
-                            IsEnabled="{Binding IsIdle}" PlaceholderText="Click Refresh to find connected phones" />
-                </DockPanel>
-                <TextBlock TextWrapping="Wrap" Classes="muted"
-                           Text="Android: unlock the phone and choose &quot;File transfer&quot; in the USB notification. iPhone: unlock it, tap &quot;Trust&quot;, and set Settings &gt; Photos &gt; Transfer to Mac or PC to &quot;Keep Originals&quot;." />
-                <TextBlock Text="{Binding PhonesUnavailableReason}" TextWrapping="Wrap" Foreground="IndianRed"
-                           IsVisible="{Binding PhonesUnavailableReason, Converter={x:Static ObjectConverters.IsNotNull}}" />
-              </StackPanel>
-            </Border>
 
-            <Border Classes="card">
-              <StackPanel Spacing="8">
-                <TextBlock Classes="heading" Text="Copy to" />
-                <DockPanel>
-                  <Button DockPanel.Dock="Right" Content="Change…" Command="{Binding ChangeDestinationCommand}" Margin="8,0,0,0" />
-                  <TextBlock Text="{Binding DestinationFolder}" VerticalAlignment="Center" TextWrapping="Wrap" />
-                </DockPanel>
-                <TextBlock TextWrapping="Wrap" Classes="muted"
-                           Text="Photos and videos keep the phone's folders, in a folder named after the phone. Files imported before are skipped." />
-              </StackPanel>
-            </Border>
+      <!-- Upload to Google Drive -->
+      <TabItem Header="Upload to Google Drive" IsVisible="{Binding HasUpload}">
+        <DockPanel Margin="8">
+          <Panel DockPanel.Dock="Top" Margin="0,0,0,12" IsVisible="{Binding HasDrive}">
+            <views:DriveBar DataContext="{Binding Drive}" />
+          </Panel>
+          <DockPanel DataContext="{Binding Upload}" x:DataType="vm:UploadViewModel">
+            <StackPanel DockPanel.Dock="Top" Spacing="12">
+              <Border Background="#33FFA500" CornerRadius="4" Padding="8" IsVisible="{Binding HasConnectionText}">
+                <TextBlock Text="{Binding ConnectionText}" TextWrapping="Wrap" FontWeight="SemiBold" />
+              </Border>
 
-            <StackPanel Spacing="6">
-              <StackPanel Orientation="Horizontal" Spacing="8">
-                <Button Content="Check" Command="{Binding CheckCommand}" />
-                <Button Content="Start copy" Command="{Binding StartCommand}" Classes="accent" />
-                <Button Content="Cancel" Command="{Binding CheckCancelCommand}" IsVisible="{Binding CheckCommand.IsRunning}" />
-                <Button Content="Cancel" Command="{Binding StartCancelCommand}" IsVisible="{Binding StartCommand.IsRunning}" />
+              <Border Classes="card">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="heading" Text="Upload from" />
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Change…" Command="{Binding ChangeLocalFolderCommand}" Margin="8,0,0,0" />
+                    <TextBlock Text="{Binding LocalFolder, TargetNullValue='No folder chosen'}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                  </DockPanel>
+                  <TextBlock TextWrapping="Wrap" Classes="muted"
+                             Text="Photos and videos in this folder and its subfolders. Tip: import from your phone and remove duplicates first." />
+                </StackPanel>
+              </Border>
+
+              <Border Classes="card">
+                <StackPanel Spacing="8">
+                  <TextBlock Classes="heading" Text="Upload to" />
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Choose…" Command="{Binding ChooseDriveFolderCommand}" Margin="8,0,0,0" />
+                    <TextBlock Text="{Binding DriveFolderText}" VerticalAlignment="Center" TextWrapping="Wrap" />
+                  </DockPanel>
+                  <TextBlock TextWrapping="Wrap" Classes="muted"
+                             Text="The files keep their folders, in a folder named after the local folder. Files whose contents are already anywhere in this Google Drive folder are skipped. Nothing in Google Drive is changed or deleted." />
+                </StackPanel>
+              </Border>
+
+              <StackPanel Spacing="6">
+                <StackPanel Orientation="Horizontal" Spacing="8">
+                  <Button Content="Check" Command="{Binding CheckCommand}" />
+                  <Button Content="Start upload" Command="{Binding StartCommand}" Classes="accent" />
+                  <Button Content="Cancel" Command="{Binding CheckCancelCommand}" IsVisible="{Binding CheckCommand.IsRunning}" />
+                  <Button Content="Cancel" Command="{Binding StartCancelCommand}" IsVisible="{Binding StartCommand.IsRunning}" />
+                </StackPanel>
+                <TextBlock Text="{Binding SummaryText}" FontWeight="SemiBold" TextWrapping="Wrap" />
+                <ProgressBar Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
+                             IsIndeterminate="{Binding IsProgressIndeterminate}" />
+                <TextBlock Text="{Binding FilesLeftText}" TextWrapping="Wrap" />
+                <TextBlock Text="{Binding CurrentFileText}" TextWrapping="Wrap" Classes="muted" />
+                <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
               </StackPanel>
-              <TextBlock Text="{Binding SummaryText}" FontWeight="SemiBold" TextWrapping="Wrap" />
-              <ProgressBar Minimum="0" Maximum="{Binding ProgressMaximum}" Value="{Binding ProgressValue}"
-                           IsIndeterminate="{Binding IsProgressIndeterminate}" />
-              <TextBlock Text="{Binding FilesLeftText}" TextWrapping="Wrap" />
-              <TextBlock Text="{Binding CurrentFileText}" TextWrapping="Wrap" Classes="muted" />
-              <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
             </StackPanel>
-          </StackPanel>
 
-          <Expander Header="Problems" HorizontalAlignment="Stretch" Margin="0,12,0,0" IsVisible="{Binding HasProblems}"
-                    IsExpanded="True" VerticalAlignment="Top">
-            <ListBox ItemsSource="{Binding Problems}" MaxHeight="220" />
-          </Expander>
+            <Expander Header="Problems" HorizontalAlignment="Stretch" Margin="0,12,0,0" IsVisible="{Binding HasProblems}"
+                      IsExpanded="True" VerticalAlignment="Top">
+              <ListBox ItemsSource="{Binding Problems}" MaxHeight="220" />
+            </Expander>
+          </DockPanel>
         </DockPanel>
       </TabItem>
     </TabControl>
@@ -233,8 +285,7 @@
           <StackPanel DockPanel.Dock="Top" Spacing="6" Margin="0,0,0,12">
             <TextBlock Classes="heading" Text="Choose a Google Drive folder" />
             <TextBlock Text="{Binding CurrentPath}" TextWrapping="Wrap" FontWeight="SemiBold" />
-            <TextBlock TextWrapping="Wrap" Classes="muted"
-                       Text="Double-click a folder to open it. The buttons below add the folder shown above, including its subfolders." />
+            <TextBlock TextWrapping="Wrap" Classes="muted" Text="{Binding HintText}" />
           </StackPanel>
           <StackPanel DockPanel.Dock="Bottom" Spacing="8" Margin="0,12,0,0">
             <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
@@ -243,8 +294,11 @@
               <StackPanel Orientation="Horizontal" Spacing="8">
                 <Button Content="Up" Command="{Binding UpCommand}" />
                 <Button Content="Open" Command="{Binding OpenCommand}" />
-                <Button Content="Add to folders to scan" Command="{Binding AddToScanCommand}" Classes="accent" />
-                <Button Content="Add as master folder" Command="{Binding AddAsMasterCommand}" />
+                <Button Content="Add to folders to scan" Command="{Binding AddToScanCommand}" Classes="accent"
+                        IsVisible="{Binding IsAdding}" />
+                <Button Content="Add as master folder" Command="{Binding AddAsMasterCommand}" IsVisible="{Binding IsAdding}" />
+                <Button Content="{Binding ChooseLabel}" Command="{Binding ChooseFolderCommand}" Classes="accent"
+                        IsVisible="{Binding IsChoosing}" />
               </StackPanel>
             </DockPanel>
           </StackPanel>

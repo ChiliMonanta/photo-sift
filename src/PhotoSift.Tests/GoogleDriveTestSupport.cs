@@ -1,4 +1,5 @@
 using System.Net;
+using System.Security.Cryptography;
 using System.Text;
 using System.Web;
 using PhotoSift.Core.GoogleDrive;
@@ -92,6 +93,120 @@ public sealed class FakeDriveApi : IDriveApi
         return Task.FromResult(children);
     }
 
+    // ---- Uploads ----------------------------------------------------------------------------
+
+    private readonly Dictionary<Uri, (DriveNewFile File, MemoryStream Data)> _sessions = [];
+    private readonly Dictionary<string, byte[]> _contents = new(StringComparer.Ordinal);
+
+    /// <summary>Offsets of every chunk received, in order.</summary>
+    public List<long> ChunkOffsets { get; } = [];
+
+    public List<DriveNewFile> StartedUploads { get; } = [];
+
+    public List<string> Trashed { get; } = [];
+
+    /// <summary>Called for each chunk with the chunk number (1-based); return an exception to fail it.</summary>
+    /// <remarks>When <see cref="StoreFailedChunks"/> is true, the bytes still arrive, like a lost response.</remarks>
+    public Func<int, Exception?>? FailChunk { get; set; }
+
+    public bool StoreFailedChunks { get; set; }
+
+    /// <summary>Makes Drive report another MD5 for uploaded files, as if the data was damaged.</summary>
+    public bool CorruptUploads { get; set; }
+
+    public Exception? FailStartUpload { get; set; }
+
+    private int _chunks;
+
+    public byte[] ContentOf(string id) => _contents[id];
+
+    public IEnumerable<DriveItem> Items => _items.Values;
+
+    public DriveItem? Find(string name) => _items.Values.SingleOrDefault(i => i.Name == name && !i.Trashed);
+
+    /// <summary>The names from the root to an item, e.g. "My Drive/Photos/a.jpg".</summary>
+    public string PathOf(string id)
+    {
+        var item = _items[id];
+        return item.Parents.Count == 0 ? item.Name : PathOf(item.Parents[0]) + "/" + item.Name;
+    }
+
+    public void ExpireSessions() => _sessions.Clear();
+
+    public Task<DriveItem> CreateFolderAsync(string name, string parentId, CancellationToken cancellationToken) =>
+        Task.FromResult(_items[AddFolder(name, parentId)]);
+
+    public Task<Uri> StartUploadAsync(DriveNewFile file, CancellationToken cancellationToken)
+    {
+        if (FailStartUpload is { } failure)
+        {
+            throw failure;
+        }
+
+        StartedUploads.Add(file);
+        var session = new Uri($"https://www.googleapis.com/upload/drive/v3/files?uploadType=resumable&upload_id={Guid.NewGuid():N}");
+        _sessions[session] = (file, new MemoryStream());
+        return Task.FromResult(session);
+    }
+
+    public Task<DriveUploadStatus> UploadChunkAsync(
+        Uri session, ReadOnlyMemory<byte> chunk, long offset, long totalSize, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        if (!_sessions.TryGetValue(session, out var upload))
+        {
+            throw new DriveApiException(404, "Upload session not found (simulated).");
+        }
+
+        if (offset != upload.Data.Length)
+        {
+            throw new DriveApiException(400, $"Expected offset {upload.Data.Length}, got {offset} (simulated).");
+        }
+
+        var failure = FailChunk?.Invoke(++_chunks);
+        if (failure is not null && !StoreFailedChunks)
+        {
+            throw failure;
+        }
+
+        ChunkOffsets.Add(offset);
+        upload.Data.Write(chunk.Span);
+        if (failure is not null)
+        {
+            throw failure;
+        }
+
+        return Task.FromResult(StatusOf(session));
+    }
+
+    public Task<DriveUploadStatus> GetUploadStatusAsync(Uri session, long totalSize, CancellationToken cancellationToken) =>
+        _sessions.ContainsKey(session)
+            ? Task.FromResult(StatusOf(session))
+            : throw new DriveApiException(404, "Upload session not found (simulated).");
+
+    public Task TrashAsync(string id, CancellationToken cancellationToken)
+    {
+        Trashed.Add(id);
+        Update(id, i => i with { Trashed = true });
+        return Task.CompletedTask;
+    }
+
+    private DriveUploadStatus StatusOf(Uri session)
+    {
+        var (file, data) = _sessions[session];
+        if (data.Length < file.Size)
+        {
+            return new DriveUploadStatus(data.Length, null);
+        }
+
+        var bytes = data.ToArray();
+        var md5 = Convert.ToHexStringLower(MD5.HashData(bytes));
+        var id = AddFile(file.Name, file.ParentId, CorruptUploads ? "0badc0de" + md5[8..] : md5, bytes.Length, file.MimeType ?? "application/octet-stream");
+        _contents[id] = bytes;
+        _sessions.Remove(session);
+        return new DriveUploadStatus(bytes.Length, _items[id]);
+    }
+
     private string NewId() => $"id{++_nextId}";
 
     private string Add(DriveItem item)
@@ -108,6 +223,8 @@ public sealed class FakeDriveSession(FakeDriveApi api) : IDriveSession
     public DriveAccount? Account => IsConnected ? api.Account : null;
 
     public IDriveApi? Api => IsConnected ? api : null;
+
+    public bool CanUpload => IsConnected;
 }
 
 /// <summary>Answers HTTP requests with a function and records each request with its body.</summary>
