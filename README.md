@@ -2,6 +2,10 @@
 
 Cross-platform desktop app (.NET 10, Avalonia) that finds exact duplicate photos in local folders and safely moves selected copies to the OS trash. See [SPEC.md](SPEC.md) for requirements.
 
+![PhotoSift showing groups of identical photos, with the copies outside the master folder marked for deletion](docs/images/find-duplicates.png)
+
+_Screenshots show generated demo images._
+
 ## Run
 
 Requires the .NET 10 SDK. From the repository root:
@@ -41,6 +45,8 @@ To try the packaging without releasing, run the Release workflow manually from t
 The **Import from phone** tab copies photos and videos from an Android phone or iPhone (Windows), or from any folder such as a memory card. Connect the phone with a USB cable and unlock it (Android: choose "File transfer"; iPhone: tap "Trust" and set Settings > Photos > Transfer to Mac or PC to "Keep Originals"), click **Refresh**, choose the phone, and click **Start copy**.
 
 Nothing on the phone is changed. Files imported before are skipped, and if the import is interrupted, clicking **Start copy** again continues where it stopped; a file whose copy was cut off is copied again, so no broken files are left behind.
+
+![The Import from phone tab after copying three new files from a phone](docs/images/import-from-phone.png)
 
 ## Google Drive (in development)
 
