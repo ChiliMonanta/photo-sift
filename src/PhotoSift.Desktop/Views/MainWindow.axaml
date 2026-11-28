@@ -228,6 +228,8 @@
               <StackPanel Spacing="2" Margin="0,0,12,0">
                 <TextBlock Classes="heading" Text="Photo folder" />
                 <TextBlock Text="{Binding LibraryFolder, TargetNullValue='No folder chosen'}" TextWrapping="Wrap" />
+                <TextBlock Classes="muted" TextWrapping="Wrap"
+                           Text="Drag photos onto a folder to move them there. Drag a selected photo to move all selected photos." />
               </StackPanel>
             </DockPanel>
           </Border>
@@ -255,7 +257,8 @@
                     </TextBox>
                   </DockPanel>
                 </StackPanel>
-                <TreeView ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}">
+                <TreeView x:Name="SortFolderTree" ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}"
+                          DragDrop.AllowDrop="True">
                   <TreeView.Styles>
                     <Style Selector="TreeViewItem" x:DataType="vm:SortFolderViewModel">
                       <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
@@ -263,7 +266,10 @@
                   </TreeView.Styles>
                   <TreeView.ItemTemplate>
                     <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:SortFolderViewModel">
-                      <TextBlock Text="{Binding Label}" />
+                      <Border CornerRadius="3" Padding="4,1" Margin="-4,0"
+                              Background="{Binding IsDropTarget, Converter={x:Static svc:DropTargetBrush.Converter}}">
+                        <TextBlock Text="{Binding Label}" />
+                      </Border>
                     </TreeDataTemplate>
                   </TreeView.ItemTemplate>
                 </TreeView>
@@ -297,7 +303,7 @@
                   </ComboBox>
                 </DockPanel>
                 <ScrollViewer HorizontalScrollBarVisibility="Disabled">
-                  <ItemsRepeater ItemsSource="{Binding Photos}">
+                  <ItemsRepeater x:Name="SortPhotoGrid" ItemsSource="{Binding Photos}">
                     <ItemsRepeater.Layout>
                       <UniformGridLayout MinItemWidth="156" MinItemHeight="176" MinRowSpacing="8" MinColumnSpacing="8" />
                     </ItemsRepeater.Layout>

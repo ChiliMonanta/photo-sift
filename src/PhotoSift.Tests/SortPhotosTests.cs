@@ -236,6 +236,57 @@ public sealed class SortViewModelTests : IDisposable
     }
 
     [Fact]
+    public async Task Dragging_an_unselected_photo_moves_only_it()
+    {
+        var vm = await OpenAsync();
+        await SelectFolderAsync(vm, Folder(vm, "Photos/Inbox"));
+        vm.Photos[0].IsSelected = true;
+
+        var dragged = vm.StartDrag(vm.Photos[1]);
+
+        Assert.Equal(["IMG_2.jpg"], dragged.Select(p => p.FileName));
+        Assert.Equal([false, true, false], vm.Photos.Select(p => p.IsSelected));
+    }
+
+    [Fact]
+    public async Task Dragging_a_selected_photo_drops_all_selected_photos_on_the_folder()
+    {
+        var vm = await OpenAsync();
+        var trips = Folder(vm, "Photos/Trips");
+        await SelectFolderAsync(vm, Folder(vm, "Photos/Inbox"));
+        vm.Photos[0].IsSelected = true;
+        vm.Photos[1].IsSelected = true;
+
+        var dragged = vm.StartDrag(vm.Photos[1]);
+        vm.ShowDropTarget(trips);
+        Assert.True(trips.IsDropTarget);
+        await vm.DropAsync(trips, dragged);
+
+        Assert.False(trips.IsDropTarget);
+        Assert.True(File.Exists(_temp.PathOf("Photos/Trips/IMG_1.jpg")));
+        Assert.True(File.Exists(_temp.PathOf("Photos/Trips/IMG_2.jpg")));
+        Assert.Equal(["VID_1.mp4"], vm.Photos.Select(p => p.FileName));
+        Assert.True(vm.UndoCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task Photos_cannot_be_dropped_on_their_own_folder()
+    {
+        var vm = await OpenAsync();
+        var inbox = Folder(vm, "Photos/Inbox");
+        await SelectFolderAsync(vm, inbox);
+
+        var dragged = vm.StartDrag(vm.Photos[0]);
+        vm.ShowDropTarget(inbox);
+        await vm.DropAsync(inbox, dragged);
+
+        Assert.False(vm.CanDropOn(inbox));
+        Assert.False(inbox.IsDropTarget);
+        Assert.Equal(3, vm.Photos.Count);
+        Assert.True(File.Exists(_temp.PathOf("Photos/Inbox/IMG_1.jpg")));
+    }
+
+    [Fact]
     public async Task The_library_is_remembered()
     {
         await OpenAsync();

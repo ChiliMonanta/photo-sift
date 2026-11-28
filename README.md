@@ -50,7 +50,7 @@ Nothing on the phone is changed. Files imported before are skipped, and if the i
 
 ## Sort photos
 
-The **Sort photos** tab shows the folders in your photo folder and the photos in the selected folder. Create a folder, select photos, choose the folder under **Move selected to**, and click **Move**. Nothing is overwritten (a taken name gets a number), files are only moved within the same drive, and **Undo last move** puts the photos back.
+The **Sort photos** tab shows the folders in your photo folder and the photos in the selected folder. Create a folder, then drag photos onto it (or select photos, choose the folder under **Move selected to**, and click **Move**). Nothing is overwritten (a taken name gets a number), files are only moved within the same drive, and **Undo last move** puts the photos back.
 
 ## Google Drive (in development)
 

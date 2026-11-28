@@ -154,11 +154,56 @@ public sealed partial class SortViewModel : ObservableObject
     }
 
     [RelayCommand(CanExecute = nameof(CanMove))]
-    private async Task MoveAsync()
+    private Task MoveAsync() => MoveToAsync(MoveTarget!, Photos.Where(p => p.IsSelected).ToList());
+
+    private bool CanMove() => !IsBusy && MoveTarget is not null && SelectedFolder is not null && MoveTarget != SelectedFolder &&
+                              SelectedCount > 0;
+
+    // ---- Drag and drop -------------------------------------------------------------------
+
+    /// <summary>
+    /// The photos a drag starting on <paramref name="pressed"/> carries: all selected photos if it is
+    /// selected; otherwise only it, which then becomes the only selected photo (as in file managers).
+    /// </summary>
+    public IReadOnlyList<SortPhotoViewModel> StartDrag(SortPhotoViewModel pressed)
     {
-        var target = MoveTarget!;
+        if (!pressed.IsSelected)
+        {
+            foreach (var photo in Photos)
+            {
+                photo.IsSelected = ReferenceEquals(photo, pressed);
+            }
+        }
+
+        return Photos.Where(p => p.IsSelected).ToList();
+    }
+
+    /// <summary>Whether photos from the shown folder can be dropped on <paramref name="target"/>.</summary>
+    public bool CanDropOn(SortFolderViewModel? target) => !IsBusy && target is not null && SelectedFolder is not null && target != SelectedFolder;
+
+    /// <summary>Marks the folder the pointer is over during a drag (null when it leaves all folders).</summary>
+    public void ShowDropTarget(SortFolderViewModel? target)
+    {
+        foreach (var folder in AllFolders)
+        {
+            folder.IsDropTarget = ReferenceEquals(folder, target) && CanDropOn(target);
+        }
+    }
+
+    /// <summary>Moves dropped photos into <paramref name="target"/>.</summary>
+    public async Task DropAsync(SortFolderViewModel target, IReadOnlyList<SortPhotoViewModel> photos)
+    {
+        ShowDropTarget(null);
+        var shown = photos.Where(Photos.Contains).ToList();
+        if (CanDropOn(target) && shown.Count > 0)
+        {
+            await MoveToAsync(target, shown);
+        }
+    }
+
+    private async Task MoveToAsync(SortFolderViewModel target, IReadOnlyList<SortPhotoViewModel> selected)
+    {
         var source = SelectedFolder!;
-        var selected = Photos.Where(p => p.IsSelected).ToList();
         IsBusy = true;
         Problems.Clear();
         OnPropertyChanged(nameof(HasProblems));
@@ -184,9 +229,6 @@ public sealed partial class SortViewModel : ObservableObject
             UpdateSelection();
         }
     }
-
-    private bool CanMove() => !IsBusy && MoveTarget is not null && SelectedFolder is not null && MoveTarget != SelectedFolder &&
-                              SelectedCount > 0;
 
     /// <summary>Moves the photos of the last move back to where they were.</summary>
     [RelayCommand(CanExecute = nameof(CanUndo))]
@@ -249,7 +291,7 @@ public sealed partial class SortViewModel : ObservableObject
             ExpandTo(SelectedFolder);
             if (!keepStatus)
             {
-                StatusText = "Select photos, choose a folder under \"Move to\", and click Move. Create new folders with \"New folder\".";
+                StatusText = "Drag photos onto a folder, or select them, choose a folder under \"Move selected to\", and click Move.";
             }
         }
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -438,6 +480,10 @@ public sealed partial class SortFolderViewModel(string path, string name, SortFo
 
     [ObservableProperty]
     public partial bool IsExpanded { get; set; }
+
+    /// <summary>Photos are being dragged over this folder and can be dropped here.</summary>
+    [ObservableProperty]
+    public partial bool IsDropTarget { get; set; }
 
     public string Label => PhotoCount > 0 ? $"{Name} ({PhotoCount:N0})" : Name;
 

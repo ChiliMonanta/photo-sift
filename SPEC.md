@@ -212,8 +212,9 @@ Sorting photos into folders, in the **"Sort photos"** tab (after **Find duplicat
   * Nothing is overwritten: a file with a taken name gets a numbered name (`IMG_1 (2).jpg`).
   * Missing files, files already in the target folder, and files that cannot be moved are skipped and listed under Problems with the reason.
   * Cached hashes follow the moved files, so the next duplicate scan does not hash them again.
+* **Drag and drop:** photos can be dragged from the grid onto a folder in the tree; the folder is highlighted while it can take them. Dragging a selected photo moves all selected photos; dragging an unselected photo selects and moves only it. Dropping on the folder the photos are in does nothing. A drop moves files exactly like **Move**, and can be undone. Drags stay inside PhotoSift (photos are not offered to other apps, and files dropped from other apps are not accepted).
 * **Undo last move:** moves the photos of the last move back where they were, unless another file has taken that place (then it is reported and nothing is replaced).
-* **Not yet:** drag and drop, renaming and deleting folders, sorting Google Drive folders, and moving sidecar files (e.g. `.xmp`, `.aae`) with their photos.
+* **Not yet:** renaming and deleting folders, sorting Google Drive folders, and moving sidecar files (e.g. `.xmp`, `.aae`) with their photos.
 
 ---
 
