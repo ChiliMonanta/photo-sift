@@ -153,7 +153,7 @@ Anyone who downloads PhotoSift can connect **their own Google Drive** as an alte
 
 ## 9. Import from Phone (Post-MVP)
 
-Copies photos and videos from a phone to the computer, in its own **"Import from phone"** tab. The tabs follow the usual workflow: **Import from phone**, **Find duplicates**, **Upload to Google Drive**.
+Copies photos and videos from a phone to the computer, in its own **"Import from phone"** tab. The tabs follow the usual workflow: **Import from phone**, **Find duplicates**, **Sort photos**, **Upload to Google Drive**.
 
 * **Sources:** Android phones (unlocked, USB mode "File transfer") and iPhones (unlocked, "Trust this computer") through Windows Portable Devices; on other platforms phones are not available yet. Any folder can also be imported from (e.g. a memory card, or a phone the OS mounts as a folder). From phones, the `DCIM`, `Pictures`, and `Movies` folders of each storage are imported.
 * **Files:** the image formats PhotoSift scans, plus common video formats (MP4, MOV, 3GP, MKV, and others). Other files are ignored.
@@ -200,7 +200,24 @@ Uploads photos and videos from a folder on the computer to a Google Drive folder
 
 ---
 
-## 11. Future Features (Post-MVP)
+## 11. Sort Photos (Post-MVP)
+
+Sorting photos into folders, in the **"Sort photos"** tab (after **Find duplicates**). The first version is manual; automatic sorting (e.g. by date, place, or event) builds on it later.
+
+* **Photo folder:** the user chooses a local folder (remembered). The tab shows its folders as a tree, with the number of photos and videos directly in each folder. Hidden and system folders and symbolic links are skipped. **Refresh** reads the folders again.
+* **Photos:** selecting a folder shows its photos and videos (the same formats as phone import) as a grid of previews. Previews load only for the photos shown, from local files; formats the app cannot decode, and videos, show a placeholder with the file name. Photos are selected by clicking them; **Select all** and **Select none** help.
+* **New folder:** a subfolder of the selected folder, with a name that is valid on every OS (no `< > : " / \ | ? *`, no leading or trailing space or trailing period, no reserved Windows names). An existing folder is never replaced. The new folder is chosen as the move target.
+* **Move:** the selected photos are moved to the folder chosen under **Move selected to**.
+  * Files are only renamed (moved within the same drive), never copied and deleted, so a move cannot lose data. Moves to another drive are refused.
+  * Nothing is overwritten: a file with a taken name gets a numbered name (`IMG_1 (2).jpg`).
+  * Missing files, files already in the target folder, and files that cannot be moved are skipped and listed under Problems with the reason.
+  * Cached hashes follow the moved files, so the next duplicate scan does not hash them again.
+* **Undo last move:** moves the photos of the last move back where they were, unless another file has taken that place (then it is reported and nothing is replaced).
+* **Not yet:** drag and drop, renaming and deleting folders, sorting Google Drive folders, and moving sidecar files (e.g. `.xmp`, `.aae`) with their photos.
+
+---
+
+## 12. Future Features (Post-MVP)
 * Scheduled background scanning.
 * EXIF handling (the ability to copy metadata from a duplicate before deleting it).
 * Support for additional cloud services (OneDrive, Dropbox).
@@ -208,7 +225,7 @@ Uploads photos and videos from a folder on the computer to a Google Drive folder
 
 ---
 
-## 12. MVP Acceptance Criteria
+## 13. MVP Acceptance Criteria
 * Only supported image files in the selected local folders and subfolders are scanned; non-image files are excluded.
 * Files with identical contents are grouped together regardless of filename or folder. Groups contain all copies, including groups with three or more files; modified or re-encoded images are not grouped as exact duplicates.
 * A master-folder selection keeps copies in any of the selected master folders and marks matching copies outside all of them for deletion. If no copy exists in a master folder, no file in that group is selected automatically.

@@ -216,6 +216,117 @@
       </TabItem>
 
 
+      <!-- Sort photos -->
+      <TabItem Header="Sort photos" IsVisible="{Binding HasSort}">
+        <DockPanel Margin="8" DataContext="{Binding Sort}" x:DataType="vm:SortViewModel">
+          <Border DockPanel.Dock="Top" Classes="card" Margin="0,0,0,12">
+            <DockPanel>
+              <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Content="Refresh" Command="{Binding RefreshCommand}" />
+                <Button Content="Change…" Command="{Binding ChangeLibraryCommand}" />
+              </StackPanel>
+              <StackPanel Spacing="2" Margin="0,0,12,0">
+                <TextBlock Classes="heading" Text="Photo folder" />
+                <TextBlock Text="{Binding LibraryFolder, TargetNullValue='No folder chosen'}" TextWrapping="Wrap" />
+              </StackPanel>
+            </DockPanel>
+          </Border>
+
+          <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,12,0,0">
+            <TextBlock Text="{Binding StatusText}" TextWrapping="Wrap" />
+            <Expander Header="Problems" HorizontalAlignment="Stretch" IsVisible="{Binding HasProblems}" IsExpanded="True">
+              <ListBox ItemsSource="{Binding Problems}" MaxHeight="160" />
+            </Expander>
+          </StackPanel>
+
+          <Grid ColumnDefinitions="300,12,*">
+            <!-- Folders -->
+            <Border Classes="card">
+              <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Classes="heading" Text="Folders" Margin="0,0,0,8" />
+                <StackPanel DockPanel.Dock="Bottom" Spacing="6" Margin="0,8,0,0">
+                  <TextBlock Classes="muted" Text="New folder in the selected folder" TextWrapping="Wrap" />
+                  <DockPanel>
+                    <Button DockPanel.Dock="Right" Content="Create" Command="{Binding CreateFolderCommand}" Margin="8,0,0,0" />
+                    <TextBox Text="{Binding NewFolderName}" PlaceholderText="Folder name">
+                      <TextBox.KeyBindings>
+                        <KeyBinding Gesture="Enter" Command="{Binding CreateFolderCommand}" />
+                      </TextBox.KeyBindings>
+                    </TextBox>
+                  </DockPanel>
+                </StackPanel>
+                <TreeView ItemsSource="{Binding Folders}" SelectedItem="{Binding SelectedFolder}">
+                  <TreeView.Styles>
+                    <Style Selector="TreeViewItem" x:DataType="vm:SortFolderViewModel">
+                      <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                    </Style>
+                  </TreeView.Styles>
+                  <TreeView.ItemTemplate>
+                    <TreeDataTemplate ItemsSource="{Binding Children}" x:DataType="vm:SortFolderViewModel">
+                      <TextBlock Text="{Binding Label}" />
+                    </TreeDataTemplate>
+                  </TreeView.ItemTemplate>
+                </TreeView>
+              </DockPanel>
+            </Border>
+
+            <!-- Photos in the selected folder (virtualized: previews load only for shown photos) -->
+            <Border Grid.Column="2" Classes="card">
+              <DockPanel>
+                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8">
+                  <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <Button Content="Select all" Command="{Binding SelectAllCommand}" />
+                    <Button Content="Select none" Command="{Binding SelectNoneCommand}" />
+                  </StackPanel>
+                  <StackPanel Spacing="2">
+                    <TextBlock Classes="heading" Text="{Binding SelectedFolder.DisplayPath, FallbackValue=''}" TextWrapping="Wrap" />
+                    <TextBlock Classes="muted" Text="{Binding SelectionText}" />
+                  </StackPanel>
+                </DockPanel>
+                <DockPanel DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                  <TextBlock DockPanel.Dock="Left" Text="Move selected to" VerticalAlignment="Center" Margin="0,0,8,0" />
+                  <Button DockPanel.Dock="Right" Content="Undo last move" Command="{Binding UndoCommand}" Margin="8,0,0,0" />
+                  <Button DockPanel.Dock="Right" Content="Move" Command="{Binding MoveCommand}" Classes="accent" Margin="8,0,0,0" />
+                  <ComboBox ItemsSource="{Binding AllFolders}" SelectedItem="{Binding MoveTarget}" HorizontalAlignment="Stretch"
+                            PlaceholderText="Choose a folder">
+                    <ComboBox.ItemTemplate>
+                      <DataTemplate x:DataType="vm:SortFolderViewModel">
+                        <TextBlock Text="{Binding DisplayPath}" />
+                      </DataTemplate>
+                    </ComboBox.ItemTemplate>
+                  </ComboBox>
+                </DockPanel>
+                <ScrollViewer HorizontalScrollBarVisibility="Disabled">
+                  <ItemsRepeater ItemsSource="{Binding Photos}">
+                    <ItemsRepeater.Layout>
+                      <UniformGridLayout MinItemWidth="156" MinItemHeight="176" MinRowSpacing="8" MinColumnSpacing="8" />
+                    </ItemsRepeater.Layout>
+                    <ItemsRepeater.ItemTemplate>
+                      <DataTemplate x:DataType="vm:SortPhotoViewModel">
+                        <ToggleButton IsChecked="{Binding IsSelected}" Padding="4" Width="156" Height="176"
+                                      HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch"
+                                      ToolTip.Tip="{Binding Path}">
+                          <DockPanel>
+                            <TextBlock DockPanel.Dock="Bottom" Text="{Binding FileName}" TextTrimming="CharacterEllipsis"
+                                       FontSize="12" Margin="2,4,2,0" />
+                            <Panel Background="{DynamicResource SystemControlBackgroundBaseLowBrush}">
+                              <Image Source="{Binding Thumbnail}" Stretch="Uniform" IsVisible="{Binding HasThumbnail}" />
+                              <TextBlock Text="{Binding ThumbnailStatus}" IsVisible="{Binding !HasThumbnail}" TextWrapping="Wrap"
+                                         TextAlignment="Center" HorizontalAlignment="Center" VerticalAlignment="Center"
+                                         Margin="6" Classes="muted" />
+                            </Panel>
+                          </DockPanel>
+                        </ToggleButton>
+                      </DataTemplate>
+                    </ItemsRepeater.ItemTemplate>
+                  </ItemsRepeater>
+                </ScrollViewer>
+              </DockPanel>
+            </Border>
+          </Grid>
+        </DockPanel>
+      </TabItem>
+
       <!-- Upload to Google Drive -->
       <TabItem Header="Upload to Google Drive" IsVisible="{Binding HasUpload}">
         <DockPanel Margin="8">

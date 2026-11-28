@@ -9,6 +9,7 @@ using PhotoSift.Core.GoogleDrive.Auth;
 using PhotoSift.Core.Hashing;
 using PhotoSift.Core.Import;
 using PhotoSift.Core.Scanning;
+using PhotoSift.Core.Sorting;
 using PhotoSift.Core.Sources;
 using PhotoSift.Core.Upload;
 using PhotoSift.Desktop.Platform;
@@ -45,6 +46,8 @@ public partial class App : Application
             var folderPicker = new FolderPicker(window);
             var (import, importWarning) = OpenImport(cache, folderPicker);
             var (upload, uploadWarning) = OpenUpload(cache, driveViewModel, folderPicker);
+            var sort = new SortViewModel(new PhotoSorter(cache), folderPicker, new ThumbnailLoader(), import?.Journal);
+            _ = sort.InitializeAsync();
 
             window.DataContext = new MainWindowViewModel(
                 new DuplicateScanner(sources),
@@ -54,7 +57,8 @@ public partial class App : Application
                 cacheWarning ?? importWarning ?? uploadWarning,
                 driveViewModel,
                 import,
-                upload);
+                upload,
+                sort);
 
             desktop.MainWindow = window;
             desktop.Exit += (_, _) =>

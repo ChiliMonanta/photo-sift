@@ -48,6 +48,10 @@ Nothing on the phone is changed. Files imported before are skipped, and if the i
 
 ![The Import from phone tab after copying three new files from a phone](docs/images/import-from-phone.png)
 
+## Sort photos
+
+The **Sort photos** tab shows the folders in your photo folder and the photos in the selected folder. Create a folder, select photos, choose the folder under **Move selected to**, and click **Move**. Nothing is overwritten (a taken name gets a number), files are only moved within the same drive, and **Undo last move** puts the photos back.
+
 ## Google Drive (in development)
 
 PhotoSift can scan folders in your own My Drive, read-only, together with local folders, and upload photos to Drive (Windows only for now). Click **Connect Google Drive…**, sign in in your browser, then **Browse Google Drive…** to add Drive folders to scan or as master folders. Hashes come from Drive's metadata, so no photos are downloaded. Drive copies are never moved to the trash in this version, but they count as kept copies when you delete local duplicates.
