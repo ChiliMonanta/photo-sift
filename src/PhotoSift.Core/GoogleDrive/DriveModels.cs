@@ -27,7 +27,17 @@ public sealed record DriveItem(
 /// <param name="PermissionId">Google's stable id for the account; used in locations.</param>
 public sealed record DriveAccount(string PermissionId, string Email);
 
-/// <summary>Read-only access to the signed-in user's Google Drive.</summary>
+/// <summary>A file to upload: its name, the folder it goes in, and its size.</summary>
+/// <param name="MimeType">Null lets Drive detect the type.</param>
+/// <param name="ModifiedUtc">Shown in Drive as the file's modification date.</param>
+public sealed record DriveNewFile(string Name, string ParentId, long Size, string? MimeType, DateTime? ModifiedUtc);
+
+/// <summary>Where a resumable upload stands.</summary>
+/// <param name="ReceivedBytes">Bytes Google has stored; the upload continues from here.</param>
+/// <param name="File">The new Drive file once the upload is complete; otherwise null.</param>
+public sealed record DriveUploadStatus(long ReceivedBytes, DriveItem? File);
+
+/// <summary>Access to the signed-in user's Google Drive.</summary>
 public interface IDriveApi
 {
     Task<DriveAccount> GetAccountAsync(CancellationToken cancellationToken);
@@ -43,6 +53,25 @@ public interface IDriveApi
     /// <see cref="DriveApiException"/> when Google refuses it, e.g. because the link expired.
     /// </summary>
     Task<byte[]> DownloadThumbnailAsync(string thumbnailLink, CancellationToken cancellationToken);
+
+    /// <summary>Creates a folder. Drive allows several items with the same name, so look before creating.</summary>
+    Task<DriveItem> CreateFolderAsync(string name, string parentId, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Starts a resumable upload and returns its session address. Nothing appears in Drive until all
+    /// bytes have arrived, so an interrupted upload never leaves a broken file.
+    /// </summary>
+    Task<Uri> StartUploadAsync(DriveNewFile file, CancellationToken cancellationToken);
+
+    /// <summary>Sends the bytes from <paramref name="offset"/> on. Throws <see cref="DriveApiException"/> (404/410) when the session expired.</summary>
+    Task<DriveUploadStatus> UploadChunkAsync(
+        Uri session, ReadOnlyMemory<byte> chunk, long offset, long totalSize, CancellationToken cancellationToken);
+
+    /// <summary>Asks how much of an upload arrived, e.g. after an error or a restart.</summary>
+    Task<DriveUploadStatus> GetUploadStatusAsync(Uri session, long totalSize, CancellationToken cancellationToken);
+
+    /// <summary>Moves a file to the Drive trash (it can be restored there). Used only for PhotoSift's own failed uploads.</summary>
+    Task TrashAsync(string id, CancellationToken cancellationToken);
 }
 
 /// <summary>The signed-in Drive account and its API, or nulls when not connected.</summary>
@@ -51,14 +80,30 @@ public interface IDriveSession
     DriveAccount? Account { get; }
 
     IDriveApi? Api { get; }
+
+    /// <summary>Whether the sign-in allows adding files.</summary>
+    bool CanUpload { get; }
 }
 
 /// <summary>An error response from the Google Drive API.</summary>
-public sealed class DriveApiException(int statusCode, string message) : Exception(message)
+/// <param name="reason">Google's error reason, e.g. "storageQuotaExceeded", when given.</param>
+public sealed class DriveApiException(int statusCode, string message, string? reason = null) : Exception(message)
 {
     public int StatusCode { get; } = statusCode;
 
+    public string? Reason { get; } = reason;
+
     public bool IsNotFound => StatusCode == 404;
+
+    /// <summary>The upload session no longer exists (it expires after about a week); start a new one.</summary>
+    public bool IsUploadSessionGone => StatusCode is 404 or 410;
+
+    /// <summary>The user's Google storage is full.</summary>
+    public bool IsStorageFull => Reason is "storageQuotaExceeded" or "quotaExceeded";
+
+    /// <summary>A temporary problem at Google; trying again later may work.</summary>
+    public bool IsTransient => StatusCode is 408 or 429 or >= 500 ||
+                               (StatusCode == 403 && Reason is "rateLimitExceeded" or "userRateLimitExceeded");
 }
 
 /// <summary>Thrown when the user must connect Google Drive again (no account, or the sign-in expired or was revoked).</summary>

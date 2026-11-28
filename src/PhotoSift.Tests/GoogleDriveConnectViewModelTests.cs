@@ -8,7 +8,7 @@ namespace PhotoSift.Tests;
 public sealed class GoogleDriveConnectViewModelTests
 {
     private const string TokenResponse =
-        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive.readonly"}""";
+        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive"}""";
 
     [Fact]
     public void Connecting_updates_the_view_on_the_UI_thread_without_a_restart()
@@ -37,7 +37,8 @@ public sealed class GoogleDriveConnectViewModelTests
 
             Assert.Empty(changesOffUiThread);
             Assert.True(vm.IsConnected);
-            Assert.Equal("Connected to Google Drive as user@example.com (read-only).", vm.StatusText);
+            Assert.StartsWith("Connected to Google Drive as user@example.com.", vm.StatusText);
+            Assert.True(vm.CanUpload);
             Assert.True(vm.BrowseCommand.CanExecute(null));
             Assert.NotNull(store.Saved);
         });

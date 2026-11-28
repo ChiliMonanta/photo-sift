@@ -50,6 +50,8 @@ Nothing on the phone is changed. Files imported before are skipped, and if the i
 
 ## Google Drive (in development)
 
-PhotoSift can scan folders in your own My Drive, read-only, together with local folders (Windows only for now). Click **Connect Google Drive…**, sign in in your browser, then **Browse Google Drive…** to add Drive folders to scan or as master folders. Hashes come from Drive's metadata, so no photos are downloaded. Drive copies are never moved to the trash in this version, but they count as kept copies when you delete local duplicates.
+PhotoSift can scan folders in your own My Drive, read-only, together with local folders, and upload photos to Drive (Windows only for now). Click **Connect Google Drive…**, sign in in your browser, then **Browse Google Drive…** to add Drive folders to scan or as master folders. Hashes come from Drive's metadata, so no photos are downloaded. Drive copies are never moved to the trash in this version, but they count as kept copies when you delete local duplicates.
+
+The **Upload to Google Drive** tab uploads the photos and videos in a local folder to a Drive folder you choose, keeping the local folders. Photos whose contents are already anywhere in that Drive folder are skipped, and an interrupted upload continues where it stopped. A good order is: import from the phone, remove duplicates, then upload. Nothing in Google Drive is changed or deleted.
 
 Google Drive support needs a Google OAuth client. The credentials are not in this repository; to build with Drive support (for example in a fork), create your own client by following [docs/google-oauth-setup.md](docs/google-oauth-setup.md).

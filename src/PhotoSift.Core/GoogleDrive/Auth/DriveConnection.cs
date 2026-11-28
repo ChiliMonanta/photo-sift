@@ -62,6 +62,12 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
     public IDriveApi? Api => _stored is null ? null : _api;
 
     /// <summary>
+    /// True when the connected account allows uploading. Sign-ins made before uploading existed are
+    /// read-only; connecting again (while connected) upgrades them.
+    /// </summary>
+    public bool CanUpload => _stored is not null && GoogleOAuthClient.IncludesUploadScope(_stored.Scope);
+
+    /// <summary>
     /// True when the saved sign-in was made with permissions PhotoSift no longer uses (e.g. before
     /// previews needed the read-only Drive scope). The user must connect again.
     /// </summary>
@@ -118,7 +124,8 @@ public sealed class DriveConnection : IDriveSession, IAccessTokenProvider
             throw;
         }
 
-        // The new sign-in replaced the outdated one; remove PhotoSift's old access at Google too.
+        // The new sign-in replaced an outdated one; remove PhotoSift's old access at Google too.
+        // (A read-only sign-in upgraded to allow uploads is not revoked: it is the same grant.)
         if (_outdated is { } outdated)
         {
             _outdated = null;

@@ -8,7 +8,7 @@ namespace PhotoSift.Tests;
 public sealed class GoogleDriveAuthTests
 {
     private const string TokenResponse =
-        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive.readonly","token_type":"Bearer"}""";
+        """{"access_token":"access-1","expires_in":3600,"refresh_token":"refresh-1","scope":"https://www.googleapis.com/auth/drive","token_type":"Bearer"}""";
 
     private static readonly OAuthClientCredentials Credentials = new("client-id.apps.googleusercontent.com", "client-secret");
 

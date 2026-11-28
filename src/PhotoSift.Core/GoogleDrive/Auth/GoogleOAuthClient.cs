@@ -22,19 +22,29 @@ public sealed class OAuthException(string message, string? error = null) : Excep
 
 /// <summary>
 /// Google sign-in for installed apps: system browser, loopback redirect, PKCE (S256) and a
-/// random <c>state</c>. Requests only read-only Drive access (<see cref="Scope"/>).
+/// random <c>state</c>. Requests Drive access (<see cref="Scope"/>).
 /// </summary>
 public sealed class GoogleOAuthClient(HttpClient http, OAuthClientCredentials credentials, TimeProvider? time = null)
 {
     /// <summary>
-    /// Read-only access to Drive. Scanning only needs file metadata, but previews need Drive's
-    /// thumbnails, which the metadata-only scope cannot download. PhotoSift never downloads file contents.
+    /// Access to Drive. Scanning reads metadata and previews; uploading adds files and folders.
+    /// PhotoSift never changes or deletes existing Drive files (it only moves its own failed uploads to the Drive trash).
     /// </summary>
-    public const string Scope = "https://www.googleapis.com/auth/drive.readonly";
+    public const string Scope = "https://www.googleapis.com/auth/drive";
 
-    /// <summary>Whether a space-separated list of granted scopes includes <see cref="Scope"/>.</summary>
+    /// <summary>The read-only scope PhotoSift asked for before uploading existed; still enough to scan.</summary>
+    public const string ReadOnlyScope = "https://www.googleapis.com/auth/drive.readonly";
+
+    /// <summary>Whether a space-separated list of granted scopes allows scanning (and previews).</summary>
     public static bool IncludesRequiredScope(string? grantedScopes) =>
-        (grantedScopes ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Contains(Scope);
+        ScopesOf(grantedScopes).Any(s => s is Scope or ReadOnlyScope);
+
+    /// <summary>Whether a space-separated list of granted scopes allows uploading.</summary>
+    public static bool IncludesUploadScope(string? grantedScopes) => ScopesOf(grantedScopes).Contains(Scope);
+
+    private static string[] ScopesOf(string? grantedScopes) =>
+        (grantedScopes ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries);
+
     public const string AuthorizationEndpoint = "https://accounts.google.com/o/oauth2/v2/auth";
     public const string TokenEndpoint = "https://oauth2.googleapis.com/token";
     public const string RevokeEndpoint = "https://oauth2.googleapis.com/revoke";
@@ -152,10 +162,10 @@ public sealed class GoogleOAuthClient(HttpClient http, OAuthClientCredentials cr
         }
 
         var scope = root.TryGetProperty("scope", out var s) ? s.GetString() : null;
-        if (requireScope && !IncludesRequiredScope(scope))
+        if (requireScope && !IncludesUploadScope(scope))
         {
             throw new OAuthException(
-                "PhotoSift needs permission to see your Google Drive files. Connect again and allow it.",
+                "PhotoSift needs permission to see your Google Drive files and add new ones. Connect again and allow it.",
                 "insufficient_scope");
         }
 

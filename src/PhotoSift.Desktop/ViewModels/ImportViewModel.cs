@@ -283,7 +283,7 @@ public sealed partial class ImportViewModel : ObservableObject, IDisposable
         FilesLeftText = $"{p.FilesLeft:N0} of {p.TotalFiles:N0} files left · " +
                         $"{Formatting.FileSize(p.CopiedBytes)} of {Formatting.FileSize(p.TotalBytes)}" +
                         (p.BytesPerSecond > 0
-                            ? $" · {Formatting.FileSize((long)p.BytesPerSecond)}/s · {TimeLeft((p.TotalBytes - p.CopiedBytes) / p.BytesPerSecond)}"
+                            ? $" · {Formatting.FileSize((long)p.BytesPerSecond)}/s · {Formatting.TimeLeft((p.TotalBytes - p.CopiedBytes) / p.BytesPerSecond)}"
                             : string.Empty) +
                         (p.FailedFiles > 0 ? $" · {p.FailedFiles:N0} failed" : string.Empty);
         CurrentFileText = p.CurrentFile ?? string.Empty;
@@ -321,13 +321,6 @@ public sealed partial class ImportViewModel : ObservableObject, IDisposable
         _plan?.Source.Dispose();
         _plan = null;
     }
-
-    private static string TimeLeft(double seconds) => seconds switch
-    {
-        < 60 => "less than a minute left",
-        < 3600 => $"about {Math.Ceiling(seconds / 60):0} min left",
-        _ => $"about {seconds / 3600:0.0} h left",
-    };
 
     public void Dispose() => ResetPlan();
 }

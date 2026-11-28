@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Net;
 using System.Net.Http.Headers;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace PhotoSift.Core.GoogleDrive;
@@ -15,8 +16,9 @@ public interface IAccessTokenProvider
 }
 
 /// <summary>
-/// Google Drive API v3 over HTTPS, read-only. Retries rate limits and server errors a few times,
-/// and gets a new access token once if the API rejects one.
+/// Google Drive API v3 over HTTPS. Retries rate limits and server errors of metadata requests a
+/// few times, and gets a new access token once if the API rejects one. Upload chunks are not
+/// retried here: the uploader asks Google how much arrived and continues from there.
 /// </summary>
 public sealed class DriveRestClient(
     HttpClient http,
@@ -24,6 +26,7 @@ public sealed class DriveRestClient(
     Func<TimeSpan, CancellationToken, Task>? delay = null) : IDriveApi
 {
     public const string BaseUri = "https://www.googleapis.com/drive/v3/";
+    public const string UploadUri = "https://www.googleapis.com/upload/drive/v3/files";
 
     private const string ItemFields = "id,name,mimeType,size,md5Checksum,modifiedTime,parents,trashed,thumbnailLink";
     private const int MaxThumbnailBytes = 2 * 1024 * 1024;
@@ -115,23 +118,153 @@ public sealed class DriveRestClient(
         }
     }
 
+    public async Task<DriveItem> CreateFolderAsync(string name, string parentId, CancellationToken cancellationToken)
+    {
+        using var json = await SendJsonAsync(() => new HttpRequestMessage(HttpMethod.Post, $"{BaseUri}files?fields={ItemFields}")
+        {
+            Content = JsonContent.Create(new { name, mimeType = DriveItem.FolderMimeType, parents = new[] { parentId } }),
+        }, cancellationToken).ConfigureAwait(false);
+        return ParseItem(json.RootElement);
+    }
+
+    public async Task<Uri> StartUploadAsync(DriveNewFile file, CancellationToken cancellationToken)
+    {
+        var refreshedToken = false;
+        while (true)
+        {
+            var token = await tokens.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+            var metadata = new Dictionary<string, object> { ["name"] = file.Name, ["parents"] = new[] { file.ParentId } };
+            if (file.ModifiedUtc is { } modified)
+            {
+                metadata["modifiedTime"] = modified.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffZ", CultureInfo.InvariantCulture);
+            }
+
+            using var request = new HttpRequestMessage(HttpMethod.Post, $"{UploadUri}?uploadType=resumable&fields={ItemFields}")
+            {
+                Content = JsonContent.Create(metadata),
+            };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Headers.Add("X-Upload-Content-Length", file.Size.ToString(CultureInfo.InvariantCulture));
+            if (file.MimeType is not null)
+            {
+                request.Headers.Add("X-Upload-Content-Type", file.MimeType);
+            }
+
+            using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshedToken)
+            {
+                tokens.InvalidateAccessToken(token);
+                refreshedToken = true;
+                continue;
+            }
+
+            if (!response.IsSuccessStatusCode)
+            {
+                var (message, reason) = ParseError(await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false));
+                throw Error(response, message, reason);
+            }
+
+            var session = response.Headers.Location;
+            return session is not null && IsTrustedUploadSession(session)
+                ? session
+                : throw new DriveApiException(0, "Google Drive did not return a valid upload address.");
+        }
+    }
+
+    public Task<DriveUploadStatus> UploadChunkAsync(
+        Uri session, ReadOnlyMemory<byte> chunk, long offset, long totalSize, CancellationToken cancellationToken)
+    {
+        var end = offset + chunk.Length - 1;
+        return SendUploadAsync(session, () => new ReadOnlyMemoryContent(chunk), $"bytes {offset}-{end}/{totalSize}", cancellationToken);
+    }
+
+    public Task<DriveUploadStatus> GetUploadStatusAsync(Uri session, long totalSize, CancellationToken cancellationToken) =>
+        SendUploadAsync(session, () => new ByteArrayContent([]), $"bytes */{totalSize}", cancellationToken);
+
+    public async Task TrashAsync(string id, CancellationToken cancellationToken)
+    {
+        using var json = await SendJsonAsync(() => new HttpRequestMessage(HttpMethod.Patch, $"{BaseUri}files/{Uri.EscapeDataString(id)}?fields=id")
+        {
+            Content = JsonContent.Create(new { trashed = true }),
+        }, cancellationToken).ConfigureAwait(false);
+    }
+
+    /// <summary>Upload sessions get the access token, so they must be on Google's API host over HTTPS.</summary>
+    internal static bool IsTrustedUploadSession(Uri session) =>
+        session is { IsAbsoluteUri: true, Scheme: "https", Host: "www.googleapis.com" } &&
+        session.AbsolutePath.StartsWith("/upload/drive/", StringComparison.Ordinal);
+
+    private async Task<DriveUploadStatus> SendUploadAsync(
+        Uri session, Func<HttpContent> createContent, string contentRange, CancellationToken cancellationToken)
+    {
+        if (!IsTrustedUploadSession(session))
+        {
+            throw new DriveApiException(0, "The upload address is not a Google Drive address.");
+        }
+
+        var refreshedToken = false;
+        while (true)
+        {
+            var token = await tokens.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
+            using var request = new HttpRequestMessage(HttpMethod.Put, session) { Content = createContent() };
+            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+            request.Content.Headers.Add("Content-Range", contentRange);
+
+            using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
+            var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
+            if ((int)response.StatusCode == 308)
+            {
+                // "Resume Incomplete": the Range header says which bytes arrived (none if it is missing).
+                var received = 0L;
+                if (response.Headers.TryGetValues("Range", out var ranges) &&
+                    ranges.FirstOrDefault() is { } range && range.LastIndexOf('-') is var dash and > 0 &&
+                    long.TryParse(range[(dash + 1)..], NumberStyles.None, CultureInfo.InvariantCulture, out var last))
+                {
+                    received = last + 1;
+                }
+
+                return new DriveUploadStatus(received, null);
+            }
+
+            if (response.IsSuccessStatusCode)
+            {
+                using var json = JsonDocument.Parse(body);
+                var file = ParseItem(json.RootElement);
+                return new DriveUploadStatus(file.Size ?? 0, file);
+            }
+
+            var (message, reason) = ParseError(body);
+            if (response.StatusCode == HttpStatusCode.Unauthorized && !refreshedToken)
+            {
+                tokens.InvalidateAccessToken(token);
+                refreshedToken = true;
+                continue;
+            }
+
+            throw Error(response, message, reason);
+        }
+    }
+
     /// <summary>Escapes a value inside single quotes in a Drive search query.</summary>
     internal static string EscapeQueryValue(string value) => value.Replace(@"\", @"\\").Replace("'", @"\'");
 
-    private async Task<JsonDocument> GetJsonAsync(string relativeUri, CancellationToken cancellationToken)
+    private Task<JsonDocument> GetJsonAsync(string relativeUri, CancellationToken cancellationToken) =>
+        SendJsonAsync(() => new HttpRequestMessage(HttpMethod.Get, BaseUri + relativeUri), cancellationToken);
+
+    private async Task<JsonDocument> SendJsonAsync(Func<HttpRequestMessage> createRequest, CancellationToken cancellationToken)
     {
         var refreshedToken = false;
         for (var attempt = 1; ; attempt++)
         {
             var token = await tokens.GetAccessTokenAsync(cancellationToken).ConfigureAwait(false);
-            using var request = new HttpRequestMessage(HttpMethod.Get, BaseUri + relativeUri);
+            using var request = createRequest();
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
 
             using var response = await http.SendAsync(request, cancellationToken).ConfigureAwait(false);
             var body = await response.Content.ReadAsStringAsync(cancellationToken).ConfigureAwait(false);
             if (response.IsSuccessStatusCode)
             {
-                return JsonDocument.Parse(body);
+                return JsonDocument.Parse(body.Length == 0 ? "{}" : body);
             }
 
             var (message, reason) = ParseError(body);
@@ -148,11 +281,14 @@ public sealed class DriveRestClient(
                 continue;
             }
 
-            throw new DriveApiException(
-                (int)response.StatusCode,
-                $"Google Drive returned {(int)response.StatusCode} {response.ReasonPhrase}: {message ?? "no details"}");
+            throw Error(response, message, reason);
         }
     }
+
+    private static DriveApiException Error(HttpResponseMessage response, string? message, string? reason) =>
+        new((int)response.StatusCode,
+            $"Google Drive returned {(int)response.StatusCode} {response.ReasonPhrase}: {message ?? "no details"}",
+            reason);
 
     private static bool IsRetryable(HttpStatusCode status, string? reason) =>
         status is HttpStatusCode.TooManyRequests or HttpStatusCode.InternalServerError or HttpStatusCode.BadGateway

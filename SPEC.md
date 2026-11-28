@@ -130,17 +130,19 @@ Anyone who downloads PhotoSift can connect **their own Google Drive** as an alte
 1. **File sources (done):** Core scans, verifies, and trashes files through file sources (`IFileSource`). The local file system is the first source; every file has a source id, a unique location (an absolute path, or a URI such as `gdrive://<account>/<fileId>` for other sources), and a display path. Files from different sources are compared with each other.
 2. **Read-only Drive (first Drive release; implemented on Windows):**
    * **Scope:** only the user's own **My Drive**. Shared drives and files shared with the user are not scanned.
-   * **Access:** OAuth 2.0 with the narrowest scope that works, `drive.readonly`. Scanning alone only needs `drive.metadata.readonly`, but that scope cannot download Drive's thumbnails, so previews need `drive.readonly`. The app never downloads photo contents from Drive, only metadata and small thumbnails. Sign-ins made with an older scope are not used; the user is asked to connect again, and the old access is revoked.
+   * **Access:** OAuth 2.0. New sign-ins ask for the `drive` scope, because uploading (section 10) adds files to existing folders; scanning stays read-only. Sign-ins made with `drive.readonly` (before uploading existed) still scan; the user clicks **Allow uploads…** to connect again with the broader scope. Scanning never downloads photo contents from Drive, only metadata and small thumbnails. Sign-ins made with the old `drive.metadata.readonly` scope are not used; the user is asked to connect again, and the old access is revoked.
    * **Scanning:** Drive folders are chosen in an in-app Drive folder browser and can be combined with local folders. Hashes come from Drive's `md5Checksum` metadata, so no files are downloaded; local and Drive copies with the same MD5 are grouped together. Files without a checksum and shortcuts are skipped and reported as notes; folders that cannot be read are errors that make the scan incomplete. Folders outside My Drive are errors. Drive folders can be master folders. Drive files have locations `gdrive://<permissionId>/file/<fileId>` and folders `gdrive://<permissionId>/folder/<folderId>`, where `permissionId` identifies the Google account; display paths look like `My Drive/Photos/IMG_1.jpg`.
    * **Deletion:** Drive files cannot be moved to the trash in this release; they can be kept copies when deleting local duplicates. Selecting a Drive file for deletion is prevented, and any that reach deletion are skipped with the reason.
    * **Thumbnails:** a local copy the app can decode is used first, so Drive is not contacted. Otherwise the group shows the small thumbnail Drive generates (which also covers HEIC and RAW): the link comes with the scan's file listing (no extra requests), the image is requested at display size (about 192 px), at most two downloads run at once, and downloaded thumbnails are cached in memory by content hash for the session. An expired link is replaced once per file. The access token is only sent to Google hosts over HTTPS. If Google refuses thumbnails for several files in a row (e.g. because of the scope), no more are requested and placeholders are shown.
-3. **Drive trash (later release):** moving Drive files to the **Drive trash** (`files.update` with `trashed: true`, never `files.delete`), after revalidating each file's metadata and `md5Checksum` against the scan. Files the user cannot trash are skipped and reported. Requires the broader `drive` scope and a new Google review.
+3. **Upload (implemented on Windows):** see section 10.
+4. **Drive trash (later release):** moving Drive files to the **Drive trash** (`files.update` with `trashed: true`, never `files.delete`), after revalidating each file's metadata and `md5Checksum` against the scan. Files the user cannot trash are skipped and reported. Uses the `drive` scope that uploading already needs.
 
 **Sign-in and credentials:**
 * OAuth for installed apps: system browser (never an embedded web view), loopback redirect on `127.0.0.1` with a random port, PKCE with `S256`, and a random `state` that the redirect must match (other requests to the port are answered and ignored). The app checks that the Drive scope was granted.
 * The OAuth client ID and client secret are embedded in released builds. For desktop apps they are not confidential (RFC 8252 "public client"); security comes from the user's consent and PKCE. They are kept out of the repository: tag (release) builds receive them from GitHub Actions secrets, while manual and pull request builds are built without them; developers use `dotnet user-secrets` (Debug builds only). The environment variables `PHOTOSIFT_GOOGLE_CLIENT_ID` and `PHOTOSIFT_GOOGLE_CLIENT_SECRET` override the built-in client, so users can supply their own (an in-app setting may come later). Without a client, Drive cannot be connected and the app says why. Setting up a client is documented in [docs/google-oauth-setup.md](docs/google-oauth-setup.md).
 * The refresh token is stored only in the OS's secure storage, never in a plain file; access tokens are kept in memory only. Windows uses DPAPI (current user). macOS Keychain and Linux libsecret are planned; until then, Drive cannot be connected on those platforms, and the app says so rather than falling back to an unprotected file.
 * One Google account is connected at a time. **Disconnect** deletes the saved sign-in and revokes PhotoSift's access at Google; if revoking fails, the local sign-in is still deleted and the user is told how to remove access in their Google account. An expired or revoked sign-in is reported, and the user connects again.
+* The Drive connection is shown at the top of the **Find duplicates** and **Upload to Google Drive** tabs. Connecting and disconnecting are disabled while a scan, deletion, or upload runs.
 * Google requires verification for public apps that use restricted Drive scopes (privacy policy and home page on a verified domain, a demo video, and a scope justification). Until verified, the app runs in Testing mode with listed test users.
 
 **Safety:** if a scanned local folder is inside a Google Drive for desktop folder (e.g. `G:\My Drive`, `~/Library/CloudStorage/GoogleDrive-*`) and Drive is also scanned through the API, the app warns that the same file may appear twice and that deleting the local copy also deletes it from Drive.
@@ -151,7 +153,7 @@ Anyone who downloads PhotoSift can connect **their own Google Drive** as an alte
 
 ## 9. Import from Phone (Post-MVP)
 
-Copies photos and videos from a phone to the computer, in its own **"Import from phone"** tab next to **"Find duplicates"**.
+Copies photos and videos from a phone to the computer, in its own **"Import from phone"** tab. The tabs follow the usual workflow: **Import from phone**, **Find duplicates**, **Upload to Google Drive**.
 
 * **Sources:** Android phones (unlocked, USB mode "File transfer") and iPhones (unlocked, "Trust this computer") through Windows Portable Devices; on other platforms phones are not available yet. Any folder can also be imported from (e.g. a memory card, or a phone the OS mounts as a folder). From phones, the `DCIM`, `Pictures`, and `Movies` folders of each storage are imported.
 * **Files:** the image formats PhotoSift scans, plus common video formats (MP4, MOV, 3GP, MKV, and others). Other files are ignored.
@@ -172,7 +174,33 @@ Copies photos and videos from a phone to the computer, in its own **"Import from
 
 ---
 
-## 10. Future Features (Post-MVP)
+## 10. Upload to Google Drive (Post-MVP)
+
+Uploads photos and videos from a folder on the computer to a Google Drive folder, in the **"Upload to Google Drive"** tab. The intended workflow is: import from the phone, remove duplicates and unwanted photos, then upload what is left. Files land on the computer first because cleaning up is easier there, the local copy is a backup, and a phone import and an upload never fail together.
+
+* **Folders:** the user chooses a local folder and a Drive folder in My Drive (with the Drive folder browser); both are remembered. The files keep their local folder structure below a folder named after the local folder, e.g. `My Drive/Photos/Pixel 8/DCIM/Camera/IMG_1.jpg`. Folders are created as needed; an existing folder with the same name is reused.
+* **Files:** the same photo and video formats as phone import. Empty files are reported and not uploaded.
+* **Add only:** existing Drive files are never changed or deleted, and local files are only read. The only exception is PhotoSift's own upload that fails verification (below), which goes to the Drive trash, where it can be restored.
+* **Check before uploading:** the app reads the Drive folder (with all subfolders) and the local folder, and shows how many files are new (and their size), how many are already in Google Drive, and how many were uploaded before.
+* **Smart uploading:**
+  * Files whose contents (MD5) are already anywhere in the Drive folder are skipped, wherever they are and whatever their name, so photos already uploaded another way are not uploaded twice.
+  * Files uploaded before from this folder to this Drive folder, and unchanged since (same size and modification date), are skipped without hashing them again.
+  * Identical local files are uploaded once.
+  * A different file with the same name in the Drive folder is kept, and the upload gets a numbered name (`IMG_1 (2).jpg`).
+  * Local hashes use the hash cache.
+* **Safe and resumable:**
+  * Files are sent with Google's resumable uploads, in chunks of 4 MiB. A file appears in Drive only after all its bytes arrived, so an interrupted upload never leaves a broken file in Drive.
+  * An upload journal (SQLite, in the user's local app data) records each upload session before the first byte is sent, and each finished file. If an upload is canceled, the app closes, or the network drops, the next run asks Google how much of the file arrived and continues from there. An expired session (after about a week) starts the file again.
+  * After a network or server error, the app waits (1, 2, 4… seconds), asks Google how much arrived, and continues; after five retries the file fails and is tried again next time. After three failed files in a row the upload stops and asks the user to check the connection. A full Google storage stops the upload with that reason.
+  * Each uploaded file is verified: Drive's MD5 must match the local file's MD5 from the check. A local file that changed after the check is not uploaded. If Drive's copy does not match, it is moved to the Drive trash and reported, and the file is tried again next time.
+  * Uploaded files get the local file's modification date in Drive.
+* **Progress:** files left out of the total, bytes uploaded, current file, speed, and estimated time left, with a Cancel button. Afterwards: how many files were uploaded and failed, with the reason for each failure.
+* **Security:** the access token is only sent to `https://www.googleapis.com/upload/drive/...` session addresses; any other session address from the server is refused.
+* **Not covered:** Google Photos (its API no longer lets apps see a user's whole library, so duplicates could not be checked), shared drives, and deleting from Drive.
+
+---
+
+## 11. Future Features (Post-MVP)
 * Scheduled background scanning.
 * EXIF handling (the ability to copy metadata from a duplicate before deleting it).
 * Support for additional cloud services (OneDrive, Dropbox).
@@ -180,7 +208,7 @@ Copies photos and videos from a phone to the computer, in its own **"Import from
 
 ---
 
-## 11. MVP Acceptance Criteria
+## 12. MVP Acceptance Criteria
 * Only supported image files in the selected local folders and subfolders are scanned; non-image files are excluded.
 * Files with identical contents are grouped together regardless of filename or folder. Groups contain all copies, including groups with three or more files; modified or re-encoded images are not grouped as exact duplicates.
 * A master-folder selection keeps copies in any of the selected master folders and marks matching copies outside all of them for deletion. If no copy exists in a master folder, no file in that group is selected automatically.

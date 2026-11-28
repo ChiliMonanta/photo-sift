@@ -24,9 +24,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
         ThumbnailLoader thumbnailLoader,
         string? startupWarning = null,
         GoogleDriveViewModel? drive = null,
-        ImportViewModel? import = null)
+        ImportViewModel? import = null,
+        UploadViewModel? upload = null)
     {
         Import = import;
+        Upload = upload;
         _scanner = scanner;
         _deleter = deleter;
         _folderPicker = folderPicker;
@@ -58,6 +60,11 @@ public sealed partial class MainWindowViewModel : ObservableObject
 
     /// <summary>Phone import (the "Import from phone" tab); null when the import journal could not be opened.</summary>
     public ImportViewModel? Import { get; }
+
+    /// <summary>Uploading to Google Drive (the "Upload to Google Drive" tab); null without Drive support or upload journal.</summary>
+    public UploadViewModel? Upload { get; }
+
+    public bool HasUpload => Upload is not null;
 
     public bool HasImport => Import is not null;
 
